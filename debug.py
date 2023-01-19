@@ -7,71 +7,9 @@ from decimal import *
 import itertools
 from copy import deepcopy
 
-# pre conditioning
-getcontext().prec = 6 # decimal precision
-
-# tests
-dirname = os.getcwd()
-spec = meshio.read(dirname + "\\problem\\test\\sc.msh")
-
-import matplotlib.pyplot as plt
-import seaborn as sns
-plt.locator_params(nbins = 10)
-
-# plot points in boundary faces
-a = []
-for i in range(0, spec.cells_dict["hexahedron"].shape[0]):
-    a.extend(spec.cells_dict["hexahedron"][i])
-a = np.unique(np.array(a))
-b = []
-for i in a:
-    b.append(list(spec.points[i]))
-b = np.transpose(np.array(b))
-
-b = np.transpose(spec.points)
-
-fig = plt.figure()
-ax = fig.add_subplot(111, projection = "3d")
-ax.scatter(b[0], b[1], b[2])
-fig.show()
-
-# check face member
-def face_check(cell_id : int, mesh_):
-    node_list = []
-    face_list = []
-    for j in range(0 ,mesh_.cells_dict["quad"].shape[0]):
-        if all(list(map(lambda x: x in mesh_.cells_dict["hexahedron"][cell_id], mesh_.cells_dict["quad"][j]))) is True:
-            print(j, mesh_.cells_dict["quad"][j])
-            face_list.append(j)
-            node_list.extend(mesh_.cells_dict["quad"][j])
-    print("cell id: {} {}".format(cell_id, mesh_.cells_dict["hexahedron"][cell_id]))
-    node_list = list(np.unique(node_list))
-    not_in = list([x for x in mesh_.cells_dict["hexahedron"][cell_id] if x not in node_list])
-    print("node list: {}".format(node_list))
-    print("not in list: {}".format(not_in))
-    return face_list
-
 # cfd scheme
-
-# user class
-class user:
-    def __init__(self, *args):
-        # args init_value : str, solid_props : str, const_value : str
-        dirname = os.getcwd()
-        self.inits = pd.read_csv(dirname + "\\problem\\test\\" + args[0])
-        self.solid_props = pd.read_csv(dirname + "\\problem\\test\\" + args[1], index_col = 0)
-        self.constants = pd.read_csv(dirname + "\\problem\\test\\" + args[2])
-        
-user_test = user("init_values.csv", "solid_props_values.csv", "constant_values.csv")
-
-# to do
-# gmsh sucks, pls make program to parse point, cell node, and physical groups to faces
-# node-centered definition of faces
-
-# element support functions
-
 def match_duplicates(meshname : str):
-    __mesh = meshio.read(os.getcwd() + "\\problem\\test\\" + meshname)
+    __mesh = meshio.read(os.getcwd() + "\\case\\test\\" + meshname)
     # points aliases
     points_sets = []; points_uniques = []; points_product = []; points_alias = []
     for it1 in __mesh.points:
@@ -213,8 +151,13 @@ def match_face_cell(*args):
         is_bound = [it2 for it2 in cell_dict[it1][1] if it2 not in np.transpose(np.array(cell_neigh))[2]]
         neigh_list.extend(cell_neigh); bound_list.extend([[it1, it2, 0] for it2 in is_bound])
     return face_dict, cell_dict, neigh_list, bound_list
-
-# element and connectivity classes
+class user:
+    def __init__(self, *args):
+        # args init_value : str, solid_props : str, const_value : str
+        dirname = os.getcwd()
+        self.inits = pd.read_csv(dirname + "\\case\\test\\csv\\" + args[0])
+        self.solid_props = pd.read_csv(dirname + "\\case\\test\\csv" + args[1], index_col = 0)
+        self.constants = pd.read_csv(dirname + "\\problem\\test\\csv" + args[2])
 class face:
     def __init__(self, points_dict : dict, *args):
         # args new_nodes : list, new_bound : list
@@ -411,30 +354,36 @@ class clust:
         for it1 in self.faces:
             centroid += face_dict[it1].centroid * face_dict[it1].area
         centroid = centroid / self.__area
-        centroid = [round(it1, 3) for it1 in centroid]
-        self.__centroid = centroid
+        centroid = np.array([round(it1, 3) for it1 in centroid])
+        return centroid
     @staticmethod
     def match_view(points_dict : dict, face_dict : dict, clust1, clust2):
         view = Decimal(0)
-        r = clust2.centroid - clust1.centroid; r_val = np.sqrt(np.sum(np.array([it1**2 for it1 in r])))
+        r = clust2.centroid - clust1.centroid
+        r_val = round(Decimal(np.sqrt(np.sum(np.array([it1**2 for it1 in r])))), 3)
         for it1 in clust1.faces:
             ef1 = np.cross(points_dict[face_dict[it1].nodes[2]] - points_dict[face_dict[it1].nodes[0]], 
                             points_dict[face_dict[it1].nodes[1]] - points_dict[face_dict[it1].nodes[0]])
-            ef1_val = np.sqrt(np.sum(np.array([it3**2 for it3 in ef1]))); ef1 = ef1 / ef1_val
+            ef1 = np.array([round(Decimal(it2), 3) for it2 in ef1])
+            ef1_val = round(Decimal(np.sqrt(np.sum(np.array([it3**2 for it3 in ef1])))), 3); ef1 = ef1 / ef1_val
             if np.dot(ef1, r) < 0.00:
-                ef1 = -1 * ef1
+                ef1 = Decimal(-1) * ef1
             cos1 = np.dot(ef1, r) / r_val
             for it2 in clust2.faces:
                 ef2 = np.cross(points_dict[face_dict[it2].nodes[2]] - points_dict[face_dict[it2].nodes[0]], 
                                 points_dict[face_dict[it2].nodes[1]] - points_dict[face_dict[it2].nodes[0]])
-                ef2_val = np.sqrt(np.sum(np.array([it3**2 for it3 in ef2]))); ef2 = ef2 / ef2_val
+                ef2 = np.array([round(Decimal(it2), 3) for it2 in ef2])
+                ef2_val = round(Decimal(np.sqrt(np.sum(np.array([it3**2 for it3 in ef2])))), 3); ef2 = ef2 / ef2_val
                 if np.dot(ef2, r) > 0.00:
-                    ef2 = -1 * ef2
-                cos2 = np.dot(ef2, (-1) * r) / r_val
-                view += cos1 * cos2 / (math.pi * r_val**2)
+                    ef2 = Decimal(-1) * ef2
+                cos2 = Decimal(np.dot(ef2, (-1) * r) / r_val)
+                view += cos1 * cos2 / (Decimal(math.pi) * r_val**2)
         view1 = round(Decimal(view / clust1.area), 3)   
         view2 = round(Decimal(view / clust2.area), 3)
         return view1, view2
+    def print_elements(self):
+        print("faces: {}\narea: {}\ncentroid: {}".format(self.faces, self.area, self.centroid))
+        return
 class connect:
     def __init__(self, cc_args : dict, fc_args : dict):
         self.__cc = cc_args
@@ -444,23 +393,12 @@ class connect:
         self.__cc = other.__cc
         self.__fc = other.__fc
         return self
-    @staticmethod
-    def get_coo(var):
-        return sparse.coo_matrix((var[2], (var[0], var[1])))
-    @staticmethod
-    def get_csr(var):
-        return sparse.csr_matrix((var[2], (var[0], var[1])))
     @property
     def cc(self):
         pass
     @cc.getter
-    def cc(self, *args):
-        # args args : str
-        func_dict = dict({"coo": self.get_coo, "csr": self.get_csr})
-        if all([len(args != 0), args[0] in list(func_dict.keys())]) is True:
-            return func_dict[args[0]](np.transpose(self.__cc))
-        else:
-            return deepcopy(self.__cc)
+    def cc(self):
+        return deepcopy(self.__cc)
     @cc.deleter
     def cc(self):
         del self.__cc
@@ -468,109 +406,36 @@ class connect:
     def fc(self):
         pass
     @fc.getter
-    def fc(self, *args):
-        func_dict = dict({"coo": self.get_coo, "csr": self.get_csr})
-        if all([len(args != 0), args[0] in list(func_dict.keys())]) is True:
-            return func_dict[args[0]](np.transpose(self.__fc))
-        else:
-            return deepcopy(self.__fc)
+    def fc(self):
+        return deepcopy(self.__fc)
     @fc.deleter
     def fc(self):
         del self.__fc
 
-# geom class
+    def get_coo(self, var : str, which : str):
+        check = str("_connect__" + var)
+        if check in dir(self):
+            tosparse = np.transpose(np.array(self.__dict__[check][which]))
+            return sparse.coo_matrix((tosparse[2], (tosparse[0], tosparse[1])))
+        else:
+            print("Variable not found")
+        return
+    def get_csr(self, var : str, which : str):
+        check = str("_connect__" + var)
+        if check in dir(self):
+            tosparse = np.transpose(np.array(self.__dict__[check][which]))
+            return sparse.csr_matrix((tosparse[2], (tosparse[0], tosparse[1])))
+        else:
+            print("Variable not found")
+        return
+    def print_elements(self):
+        print("cc:\n")
+        print(self.cc)
+        print("fc:\n")
+        print(self.fc)
+        return
 class geom:
     def __init__(self, points_dict : dict, face_dict : dict, cell_dict : dict, neigh_args : list):
-        # one sparse args per axis
-        self.__Sf, self.__Ef, self.__Tf, self.__dCf, self.__eCf, self.__dCF, self.__eCF = self.get_info(args[0], args[1], args[2], args[3])
-    @staticmethod
-    def get_coor(var, row, col, to_value = False):
-        coor = [Decimal(0), Decimal(0), Decimal(0)]
-        for it1 in range(0, var[0].shape[0]):
-            if all([var[0][it1][0] == row, var[0][it1][1] == col]) is True:
-                coor = np.array([var[it2][it1][2] for it2 in [0,1,2]])
-        if to_value is True:
-            return round(Decimal(np.sqrt(np.sum(np.array([it1**2 for it1 in coor])))), 3)
-        else:
-            return coor
-    @property
-    def Sf(self):
-        pass
-    @Sf.getter
-    def Sf(self, is_unit : bool, *args):
-        # args , [row, col] : list
-        if all([len(args) == 2]) is True:
-            return self.get_coor(self.__Sf, args[1][0], args[1][1], is_unit)
-    @Sf.deleter
-    def Sf(self):
-        del self.__Sf
-    @property
-    def Ef(self):
-        pass
-    @Ef.getter
-    def Ef(self, is_unit : bool, *args):
-        # args , [row, col] : list
-        if all([len(args) == 2]) is True:
-            return self.get_coor(self.__Ef, args[1][0], args[1][1], is_unit)
-    @Ef.deleter
-    def Ef(self):
-        del self.__Ef
-    @property
-    def Tf(self):
-        pass
-    @Tf.getter
-    def Tf(self, is_unit : bool, *args):
-        # args , [row, col] : list
-        if all([len(args) == 2]) is True:
-            return self.get_coor(self.__Tf, args[1][0], args[1][1], is_unit)
-    @Tf.deleter
-    def Tf(self):
-        del self.__Tf
-    @property
-    def dCf(self):
-        pass
-    @dCf.getter
-    def dCf(self, is_unit : bool, *args):
-        # args , [row, col] : list
-        if all([len(args) == 2]) is True:
-            return self.get_coor(self.__dCf, args[1][0], args[1][1], is_unit)
-    @dCf.deleter
-    def dCf(self):
-        del self.__dCf
-    @property
-    def eCf(self):
-        pass
-    @eCf.getter
-    def eCf(self, is_unit : bool, *args):
-        # args , [row, col] : list
-        if all([len(args) == 2]) is True:
-            return self.get_coor(self.__eCf, args[1][0], args[1][1], is_unit)
-    @eCf.deleter
-    def eCf(self):
-        del self.__eCf
-    @property
-    def dCF(self):
-        pass
-    @dCF.getter
-    def dCF(self, is_unit : bool, *args):
-        # args , [row, col] : list
-        if all([len(args) == 2]) is True:
-            return self.get_coor(self.__dCF, args[1][0], args[1][1], is_unit)
-    @dCF.deleter
-    def dCF(self):
-        del self.__dCF
-    @property
-    def eCF(self):
-        pass
-    @eCF.getter
-    def eCF(self, is_unit : bool, *args):
-        # args , [row, col] : list
-        if all([len(args) == 2]) is True:
-            return self.get_coor(self.__eCF, args[1][0], args[1][1], is_unit)
-    @eCF.deleter
-    def eCF(self):
-        del self.__eCF
-    def get_info(self, points_dict : dict, face_dict : dict, cell_dict : dict, neigh_args : list):
         Sf_args = [[], [], []]; Ef_args = [[], [], []]; Tf_args = [[], [], []]
         dCf_args = [[], [], []]; eCf_args = [[], [], []]; dCF_args = [[], [], []]; eCF_args = [[], [], []]
         for it1, it2 in cell_dict.items():
@@ -594,115 +459,221 @@ class geom:
             eCF = dCF / dCF_val
             dCF_args[0].append([it1[0], it1[1], dCF[0]]); dCF_args[1].append([it1[0], it1[1], dCF[1]]); dCF_args[2].append([it1[0], it1[1], dCF[2]])
             eCF_args[0].append([it1[0], it1[1], eCF[0]]); eCF_args[1].append([it1[0], it1[1], eCF[1]]); eCF_args[2].append([it1[0], it1[1], eCF[2]])
-        return Sf_args, Ef_args, Tf_args, dCf_args, eCf_args, dCF_args, eCF_args
-        
-def parse(meshname : str):
-    # element object dict
-    points_dict, __cells_dict, __cell_sets_dict = match_duplicates(meshname)
-    face_args, cell_args, neigh_args, bound_args = match_face_cell(__cells_dict, __cell_sets_dict)
-    face_dict = dict({}); cell_dict = dict({}); clust_dict = dict({})
-    for it1, it2 in face_args.items():
-        face_dict[it1] = face(points_dict, *it2)
-    for it1, it2 in cell_args.items():
-        cell_dict[it1] = cell(points_dict, face_dict, *it2)
-    clust_args = dict({})
-    for it1, it2 in face_dict.items():
-        check_clust = np.array(["s2s" in it3 for it3 in it2.boundary])
-        if any(check_clust) is True:
-            clust_id = int(it2.boundary[np.where(check_clust == True)[0][0]][-1])
-            if clust_id not in list(clust_args.keys()):
-                clust_args[clust_id] = [[it1], Decimal(0)]
+        self.__Sf = np.array(Sf_args); self.__Ef = np.array(Ef_args); self.__Tf = np.array(Tf_args)
+        self.__dCf = np.array(dCf_args); self.__eCf = np.array(eCf_args); self.__dCF = np.array(dCF_args); self.__eCF = np.array(eCF_args)
+    @property
+    def Sf(self):
+        pass
+    @Sf.getter
+    def Sf(self):
+        return self.__Sf
+    @Sf.deleter
+    def Sf(self):
+        del self.__Sf
+    @property
+    def Ef(self):
+        pass
+    @Ef.getter
+    def Ef(self):
+        return self.__Ef
+    @Ef.deleter
+    def Ef(self):
+        del self.__Ef
+    @property
+    def Tf(self):
+        pass
+    @Tf.getter
+    def Tf(self):
+        return self.__Tf
+    @Tf.deleter
+    def Tf(self):
+        del self.__Tf
+    @property
+    def dCf(self):
+        pass
+    @dCf.getter
+    def dCf(self):
+        return self.__dCf
+    @dCf.deleter
+    def dCf(self):
+        del self.__dCf
+    @property
+    def eCf(self):
+        pass
+    @eCf.getter
+    def eCf(self):
+        return self.__eCf
+    @eCf.deleter
+    def eCf(self):
+        del self.__eCf
+    @property
+    def dCF(self):
+        pass
+    @dCF.getter
+    def dCF(self):
+        return self.__dCF
+    @dCF.deleter
+    def dCF(self):
+        del self.__dCF
+    @property
+    def eCF(self):
+        pass
+    @eCF.getter
+    def eCF(self):
+        return self.__eCF
+    @eCF.deleter
+    def eCF(self):
+        del self.__eCF
+
+    def get(self, row : int, col : int, is_unit : bool):
+        coor = [Decimal(0), Decimal(0), Decimal(0)]
+        for it1 in range(0, self._geom__Sf[0].shape[0]):
+            if all([self._geom__Sf[0][it1][0] == row, self._geom__Sf[0][it1][1] == col]) is True:
+                coor = np.array([self._geom__Sf[it2][it1][2] for it2 in [0,1,2]])
+        if is_unit is True:
+            return round(Decimal(np.sqrt(np.sum(np.array([it1**2 for it1 in coor])))), 3)
+        else:
+            return coor
+    def print_elements(self):
+        print("Sf: {}".format(self.Sf))
+        print("Ef: {}".format(self.Ef))
+        print("Tf: {}".format(self.Tf))
+        print("dCf: {}".format(self.dCf))
+        print("eCf: {}".format(self.eCf))
+        print("dCF: {}".format(self.dCF))
+        print("eCF: {}".format(self.eCF))
+        return
+class mesh:
+    def __init__(self, meshname : str):
+        # element object dict
+        points_dict, __cells_dict, __cell_sets_dict = match_duplicates(meshname)
+        face_args, cell_args, neigh_args, bound_args = match_face_cell(__cells_dict, __cell_sets_dict)
+        face_dict = dict({}); cell_dict = dict({}); clust_dict = dict({})
+        for it1, it2 in face_args.items():
+            face_dict[it1] = face(points_dict, *it2)
+        for it1, it2 in cell_args.items():
+            cell_dict[it1] = cell(points_dict, face_dict, *it2)
+        clust_args = dict({})
+        for it1, it2 in face_dict.items():
+            check_clust = np.array(["s2s" in it3 for it3 in it2.boundary])
+            if any(check_clust) is True:
+                clust_id = int(it2.boundary[np.where(check_clust == True)[0][0]][-1])
+                if clust_id not in list(clust_args.keys()):
+                    clust_args[clust_id] = [[it1], Decimal(0)]
+                else:
+                    clust_args[clust_id][0].append(it1)
+        if len(list(clust_args.keys())) > 0:
+            for it1, it2 in clust_args.items():
+                clust_args[it1][1] = round(Decimal(np.sum(np.array([face_dict[it2].area for it2 in it2[0]]))), 3)
+                clust_dict[it1] = clust(face_dict, clust_args[it1][0], clust_args[it1][1])
+        # connect args
+        cc_dict = dict({}); fc_dict = dict({})
+        for it1 in neigh_args:
+            domain1 = cell_dict[it1[0]].domain[0]; domain2 = cell_dict[it1[1]].domain[0]
+            print(domain1, domain2)
+            check_domain = ["fluid" in it2 for it2 in [domain1, domain2]]
+            which_cc = ""
+            if any(check_domain) is True:
+                if all(check_domain) is True:
+                    which_cc = "fluid"
+                    print("fluid")
+                else:
+                    which_cc = "conj"
             else:
-                clust_args[clust_id][0].append(it1)
-    if len(list(clust_args.keys())) > 0:
-        for it1, it2 in clust_args.items():
-            print(it1)
-            clust_args[it1][1] = round(Decimal(np.sum(np.array([face_dict[it2].area for it2 in it2[0]]))), 3)
-            print(clust_args[it1])
-            clust_dict[it1] = clust(face_dict, clust_args[it1][0], clust_args[it1][1])
-    # connect args
-    cc_dict = dict({}); fc_dict = dict({})
-    for it1 in neigh_args:
-        domain1 = cell_dict[it1[0]].domain; domain2 = cell_dict[it1[1]].domain
-        check_domain = ["fluid" in it2 for it2 in [domain1, domain2]]
-        which_cc = ""
-        if any(check_domain) is True:
-            if all(check_domain) is True:
-                which_cc = "fluid"
+                which_cc = "solid"
+            if which_cc not in list(cc_dict.keys()):
+                cc_dict[which_cc] = [it1]
             else:
-                which_cc = "conj"
-        else:
-            which_cc = "solid"
-        if which_cc not in list(cc_dict.keys()):
-            cc_dict[which_cc] = [it1]
-        else:
-            cc_dict[which_cc].append(it1)
-    for it1 in bound_args:
-        which_fc = [it2 for it2 in ["fluid", "solid"] if it2 in cell_dict[it1[0]].domain[0]]
-        which_fc = which_fc[0]
-        if which_fc not in list(fc_dict.keys()):
-            fc_dict[which_fc] = [it1]
-        else:
-            fc_dict[which_fc].append(it1)
-    if len(list(clust_args.keys())) > 0:
-        cc_dict["s2s"] = []
-        for it1 in range(0, len(list(clust_dict.keys())) - 1):
-            for it2 in range(it1 + 1, len(list(clust_dict.keys()))):
-                view1, view2 = clust.match_view(points_dict, face_dict, clust_dict[list(clust_dict.keys())[it1]], clust_dict[list(clust_dict.keys())[it2]])
-                print(view1, view2)
-                cc_dict["s2s"].append([it1, it2, view1])
-                cc_dict["s2s"].append([it2, it1, view2])
-    connect_obj = connect(cc_dict, face_dict)
-    # geom args
-    geom_obj = geom(points_dict, face_dict, cell_dict, neigh_args)
-    return face_dict, cell_dict, clust_dict, connect_obj, geom_obj
+                cc_dict[which_cc].append(it1)
+        for it1 in bound_args:
+            which_fc = [it2 for it2 in ["fluid", "solid"] if it2 in cell_dict[it1[0]].domain[0]]
+            which_fc = which_fc[0]
+            if which_fc not in list(fc_dict.keys()):
+                fc_dict[which_fc] = [it1]
+            else:
+                fc_dict[which_fc].append(it1)
+        print(cc_dict.keys())
+        if len(list(clust_args.keys())) > 0:
+            cc_dict["s2s"] = []
+            for it1 in range(0, len(list(clust_dict.keys())) - 1):
+                for it2 in range(it1 + 1, len(list(clust_dict.keys()))):
+                    view1, view2 = clust.match_view(points_dict, face_dict, clust_dict[list(clust_dict.keys())[it1]], clust_dict[list(clust_dict.keys())[it2]])
+                    cc_dict["s2s"].append([it1, it2, view1])
+                    cc_dict["s2s"].append([it2, it1, view2])
+        connect_obj = connect(cc_dict, fc_dict)
+        # geom args
+        geom_obj = geom(points_dict, face_dict, cell_dict, neigh_args)
+        self.__nodes = points_dict
+        self.__faces = face_dict
+        self.__cells = cell_dict
+        self.__clusts = clust_dict
+        self.__templates = connect_obj
+        self.__geoms = geom_obj
+    @property
+    def nodes(self):
+        pass
+    @nodes.getter
+    def nodes(self):
+        return self.__nodes
+    @nodes.deleter
+    def nodes(self):
+        del self.__nodes
+    @property
+    def faces(self):
+        pass
+    @faces.getter
+    def faces(self):
+        return self.__faces
+    @faces.deleter
+    def faces(self):
+        del self.__faces
+    @property
+    def cells(self):
+        pass
+    @cells.getter
+    def cells(self):
+        return self.__cells
+    @cells.deleter
+    def cells(self):
+        del self.__cells
+    @property
+    def clusts(self):
+        pass
+    @clusts.getter
+    def clusts(self):
+        return self.__clusts
+    @clusts.deleter
+    def clusts(self):
+        del self.__clusts
+    @property
+    def templates(self):
+        pass
+    @templates.getter
+    def templates(self):
+        return self.__templates
+    @templates.deleter
+    def templates(self):
+        del self.__templates
+    @property
+    def geoms(self):
+        pass
+    @geoms.getter
+    def geoms(self):
+        return self.__geoms
+    @geoms.deleter
+    def geoms(self):
+        del self.__geoms
+    
 
 # test element
-
-a,b,c,d,e = parse("sc.msh")
+a = mesh("sc.msh")
 
 for i, j in a.items():
     print("face {}".format(i)); j.print_elements(); print("\n")
 for i, j in b.items():
     print("cell {}".format(i)); j.print_elements(); print("\n")
+for i, j in c.items():
+    print("clust {}".format(i)); j.print_elements(); print("\n")
+print("connect \n"); d.print_elements(); print("\n")
+print("geom \n"); e.print_elements(); print("\n")
 
-# geom classes
-class geom:
-    def __init__():
-        # args
-
-def check_curve(cell_id : int, face_test, cell_test):
-    curve_dict = dict({})
-    for i in list(itertools.combinations(cell_test[cell_id][0], 2)):
-        ctd = 0
-        for j in cell_test[cell_id][1]:
-            if all([k in face_test[j][0] for k in i]) is True:
-                ctd += 1
-        curve_dict[i] = ctd
-    curve_dict = dict(sorted(curve_dict.items(), key = lambda item: item[1]))
-    curve_ctd2 = []
-    for i, j in curve_dict.items():
-        if j == 2:
-            curve_ctd2.append(i)
-    for i in cell_test[cell_id][1]:
-        
-    return curve_dict
-
-for i, j in cell_test.items():
-    vis_points = []
-    for k in j[1]:
-        vis_points.extend(face_test[k][0])
-    vis_points = list(np.unique(np.array(vis_points)))
-    vis_coor = []
-    for k in vis_points:
-        vis_coor.append(points_test[k])
-    vis_coor = np.transpose(np.array(vis_coor))
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection = "3d")
-    ax.scatter(vis_coor[0], vis_coor[1], vis_coor[2])
-    for k in j[1]:
-        for l in range(0, len(face_test[k][0])):
-            for m in range(0, len(face_test[k][0])):
-                new_line = np.transpose(np.array([points_test[face_test[k][0][l]], points_test[face_test[k][0][m]]]))
-                ax.plot(new_line[0], new_line[1], zs = new_line[2])
-    fig.show()
