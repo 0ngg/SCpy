@@ -162,41 +162,17 @@ class face:
         self.__boundary = args[1]
     @property
     def nodes(self):
-        pass
-    @nodes.getter
-    def nodes(self):
         return self.__nodes
-    @nodes.deleter
-    def nodes(self):
-        del self.__nodes
     @property
-    def area(self):
-        pass
-    @area.getter
     def area(self):
         return self.__area
-    @area.deleter
-    def area(self):
-        del self.__area
     @property
-    def centroid(self):
-        pass
-    @centroid.getter
     def centroid(self):
         return self.__centroid
-    @centroid.deleter
-    def centroid(self):
-        del self.__centroid
     @property
     def boundary(self):
-        pass
-    @boundary.getter
-    def boundary(self):
         return self.__boundary
-    @boundary.deleter
-    def boundary(self):
-        del self.__boundary
-    
+
     def get_info(self, points_dict : dict):
         get_area = Decimal(0)
         get_centroid = [Decimal(0), Decimal(0), Decimal(0)]
@@ -237,49 +213,19 @@ class cell:
         self.__domain = args[2]
     @property
     def nodes(self):
-        pass
-    @nodes.getter
-    def nodes(self):
         return self.__nodes
-    @nodes.deleter
-    def nodes(self):
-        del self.__nodes
     @property
-    def faces(self):
-        pass
-    @faces.getter
     def faces(self):
         return self.__faces
-    @faces.deleter
-    def faces(self):
-        del self.__faces
     @property
-    def volume(self):
-        pass
-    @volume.getter
     def volume(self):
         return self.__volume
-    @volume.deleter
-    def volume(self):
-        del self.__volume
     @property
-    def centroid(self):
-        pass
-    @centroid.getter
     def centroid(self):
         return self.__centroid
-    @centroid.deleter
-    def centroid(self):
-        del self.__centroid
     @property
     def domain(self):
-        pass
-    @domain.getter
-    def domain(self):
         return self.__domain
-    @domain.deleter
-    def domain(self):
-        del self.__domain
 
     def get_info(self, points_dict : dict, face_dict : dict):
         get_volume = Decimal(0)
@@ -318,40 +264,13 @@ class clust:
         self.__centroid = self.get_info(face_dict)
     @property
     def faces(self):
-        pass
-    @faces.getter
-    def faces(self):
         return self.__faces
-    @faces.deleter
-    def faces(self):
-        del self.__faces
     @property
-    def area(self):
-        pass
-    @area.getter
     def area(self):
         return self.__area
-    @area.deleter
-    def area(self):
-        del self.__area
     @property
     def centroid(self):
-        pass
-    @centroid.getter
-    def centroid(self):
         return self.__centroid
-    @centroid.deleter
-    def centroid(self):
-        del self.__centroid
-        
-    def get_info(self, face_dict : dict):
-        # centroid calc
-        centroid = np.array([Decimal(0), Decimal(0), Decimal(0)])
-        for it1 in self.faces:
-            centroid += face_dict[it1].centroid * face_dict[it1].area
-        centroid = centroid / self.__area
-        centroid = np.array([round(it1, 3) for it1 in centroid])
-        return centroid
     @staticmethod
     def match_view(points_dict : dict, face_dict : dict, clust1, clust2):
         view = Decimal(0)
@@ -377,6 +296,15 @@ class clust:
         view1 = round(Decimal(view / clust1.area), 3)   
         view2 = round(Decimal(view / clust2.area), 3)
         return view1, view2
+
+    def get_info(self, face_dict : dict):
+        # centroid calc
+        centroid = np.array([Decimal(0), Decimal(0), Decimal(0)])
+        for it1 in self.faces:
+            centroid += face_dict[it1].centroid * face_dict[it1].area
+        centroid = centroid / self.__area
+        centroid = np.array([round(it1, 3) for it1 in centroid])
+        return centroid
     def print_elements(self):
         print("faces: {}\narea: {}\ncentroid: {}".format(self.faces, self.area, self.centroid))
         return
@@ -386,41 +314,27 @@ class connect:
         self.__fc = fc_args
     @classmethod
     def copy(self, other):
-        self.__cc = other.__cc
-        self.__fc = other.__fc
+        self.__cc = deepcopy(other.__cc)
+        self.__fc = deepcopy(other.__fc)
         return self
     @property
     def cc(self):
-        pass
-    @cc.getter
-    def cc(self):
-        return deepcopy(self.__cc)
-    @cc.deleter
-    def cc(self):
-        del self.__cc
+        return self.__cc
     @property
     def fc(self):
-        pass
-    @fc.getter
-    def fc(self):
-        return deepcopy(self.__fc)
-    @fc.deleter
-    def fc(self):
-        del self.__fc
+        return self.__fc
 
     def get_coo(self, var : str, which : str):
         check = str("_connect__" + var)
         if check in dir(self):
-            tosparse = np.transpose(np.array(self.__dict__[check][which]))
-            return sparse.coo_matrix((tosparse[2], (tosparse[0], tosparse[1])))
+            return self.__dict__[check][which].tocoo()
         else:
             print("Variable not found")
         return
     def get_csr(self, var : str, which : str):
         check = str("_connect__" + var)
         if check in dir(self):
-            tosparse = np.transpose(np.array(self.__dict__[check][which]))
-            return sparse.csr_matrix((tosparse[2], (tosparse[0], tosparse[1])))
+            return self.__dict__[check][which].tocsr()
         else:
             print("Variable not found")
         return
@@ -584,6 +498,8 @@ class mesh:
                 cc_dict[which_cc] = [it1]
             else:
                 cc_dict[which_cc].append(it1)
+        for it1, it2 in cc_dict.items():
+            cc_dict[it1] = sparse.lil_matrix(it2)
         for it1 in bound_args:
             which_fc = [it2 for it2 in ["fluid", "solid"] if it2 in cell_dict[it1[0]].domain[0]]
             which_fc = which_fc[0]
@@ -591,7 +507,8 @@ class mesh:
                 fc_dict[which_fc] = [it1]
             else:
                 fc_dict[which_fc].append(it1)
-        print(cc_dict.keys())
+        for it1, it2 in fc_dict.items():
+            fc_dict[it1] = sparse.lil_matrix(it2)
         if len(list(clust_args.keys())) > 0:
             cc_dict["s2s"] = []
             for it1 in range(0, len(list(clust_dict.keys())) - 1):
@@ -599,6 +516,7 @@ class mesh:
                     view1, view2 = clust.match_view(points_dict, face_dict, clust_dict[list(clust_dict.keys())[it1]], clust_dict[list(clust_dict.keys())[it2]])
                     cc_dict["s2s"].append([it1, it2, view1])
                     cc_dict["s2s"].append([it2, it1, view2])
+            cc_dict["s2s"] = sparse.lil_matrix(cc_dict["s2s"])
         connect_obj = connect(cc_dict, fc_dict)
         # geom args
         geom_obj = geom(points_dict, face_dict, cell_dict, neigh_args)
@@ -610,58 +528,22 @@ class mesh:
         self.__geoms = geom_obj
     @property
     def nodes(self):
-        pass
-    @nodes.getter
-    def nodes(self):
         return self.__nodes
-    @nodes.deleter
-    def nodes(self):
-        del self.__nodes
     @property
-    def faces(self):
-        pass
-    @faces.getter
     def faces(self):
         return self.__faces
-    @faces.deleter
-    def faces(self):
-        del self.__faces
     @property
-    def cells(self):
-        pass
-    @cells.getter
     def cells(self):
         return self.__cells
-    @cells.deleter
-    def cells(self):
-        del self.__cells
     @property
-    def clusts(self):
-        pass
-    @clusts.getter
     def clusts(self):
         return self.__clusts
-    @clusts.deleter
-    def clusts(self):
-        del self.__clusts
     @property
-    def templates(self):
-        pass
-    @templates.getter
     def templates(self):
         return self.__templates
-    @templates.deleter
-    def templates(self):
-        del self.__templates
     @property
     def geoms(self):
-        pass
-    @geoms.getter
-    def geoms(self):
         return self.__geoms
-    @geoms.deleter
-    def geoms(self):
-        del self.__geoms
     
     def visualize_domain(self, what : str):
         unique_points = []
