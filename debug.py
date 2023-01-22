@@ -578,9 +578,9 @@ from CoolProp.HumidAirProp import HAPropsSI
 class user:
     def __init__(self, *args):
         # args init_value : str, solid_props : str, const_value : str
-        self.__inits = pd.read_csv(os.getcwd() + "\\problem\\test\\" + args[0])
-        self.__solid_props = pd.read_csv(os.getcwd() + "\\problem\\test\\" + args[1], index_col = 0)
-        self.__constants = pd.read_csv(os.getcwd() + "\\problem\\test\\" + args[2])
+        self.__inits = pd.read_csv(os.getcwd() + "\\case\\test\\csv\\" + args[0])
+        self.__solid_props = pd.read_csv(os.getcwd() + "\\case\\test\\csv\\" + args[1], index_col = 0)
+        self.__constants = pd.read_csv(os.getcwd() + "\\case\\test\\csv\\" + args[2])
     @property
     def inits(self):
         return self.__inits
@@ -725,8 +725,36 @@ class value:
         for it1 in range(0, self.faces["unit"][what].shape[0]):
             self.faces("unit", it1, what, 0, isprev = True)
             self.faces("grad", it1, what, 0, isprev = True)
-    def calc_prop(self):
-        return
+    def calc_prop(self, mesh_ : mesh, user_ : user, prop : str, where : str, id : int):
+        val = Decimal(0)
+        if prop == "rho":
+            rho_ = HAPropsSI("Vha", "P", self.__dict__[where]("unit", "P")[id][1], "T", self.__dict__[where]("unit", "T")[id][1], "W", user_.constants.loc[0, "Wamb"])
+            val = Decimal(1 / rho_)
+        elif prop == "miu":
+            miu_ = HAPropsSI("mu", "P", self.__dict__[where]("unit", "P")[id][1], "T", self.__dict__[where]("unit", "T")[id][1], "W", user_.constants.loc[0, "Wamb"]) 
+            val = Decimal(miu_)
+        elif prop == "cp":
+            cp_ = HAPropsSI("cp_ha", "P", self.__dict__[where]("unit", "P")[id][1], "T", self.__dict__[where]("unit", "T")[id][1], "W", user_.constants.loc[0, "Wamb"])
+            val = Decimal(cp_)
+        elif prop == "alpha":
+            k_ = HAPropsSI("k", "P", self.__dict__[where]("unit", "P")[id][1], "T", self.__dict__[where]("unit", "T")[id][1], "W", user_.constants.loc[0, "Wamb"])
+            rho_ = HAPropsSI("Vha", "P", self.__dict__[where]("unit", "P")[id][1], "T", self.__dict__[where]("unit", "T")[id][1], "W", user_.constants.loc[0, "Wamb"])
+            cp_ = HAPropsSI("cp_ha", "P", self.__dict__[where]("unit", "P")[id][1], "T", self.__dict__[where]("unit", "T")[id][1], "W", user_.constants.loc[0, "Wamb"])
+            val = Decimal(k_ * rho_ / cp_)
+        # solid constant
+        elif prop == "k":
+            if where == "cells":
+                solid_ = mesh_.cells[id].domain[0]
+            elif where == "faces":
+                solid_ = [it1 for it1 in mesh_.faces[id].boundary if it1 in user_.solid_props.columns][0]
+            val = Decimal(user_.solid_props.loc["k", solid_])
+        elif prop == "eps":
+            if where == "cells":
+                solid_ = mesh_.cells[id].domain[0]
+            elif where == "faces":
+                solid_ = [it1 for it1 in mesh_.faces[id].boundary if it1 in user_.solid_props.columns][0]
+            val = Decimal(user_.solid_props.loc["eps", solid_])
+        return val
 class linear:
     def __init__(self, mesh_ : mesh, what = ["fluid", "solid", "conj"]):
         self.__iter = what
@@ -753,36 +781,32 @@ class linear:
     def rhs(self, id : list, val : Decimal):
         self.__rhs[id[0], id[1]] = float(val)
     
-    def calc_transient(self, *args):
+    def calc_transient(self, mesh_ : mesh, user_ : user, value_ : value, what : str, time_step, current_time : int):
         # void
         # args mesh : mesh, what : str, time_step : int/double, current_time : int
-        lhs_transient__ = self.lhs
-        rhs_transient__ = self.rhs
-        if args[3] == 0:
-            for i in range(0, self.lhs.shape[0]):
-                for j in range(0, self.lhs.shape[1]):
-                    lhs_transient__[i][j] = lhs_transient__[i][j] + args[0].cells[i].prop.rhs[-1] * args[0].cells[i].volume / \
-                                            (args[2])
-            for i in range(0, len(self.rhs)):
-                rhs_transient__[i][0] = self.rhs[i][0] - args[0].cells[i].prop.rhs[-2] * \
-                                        args[0].cells[i].volume * args[0].cells[i].value[args[1]][-2] / \
-                                        args[2]
+        lhs_transient_ = deepcopy(self.__lhs)
+        rhs_transient_ = deepcopy(self.__rhs)
+        if current_time == 0:
+            for it1 in range(0, lhs_transient_.shape[0]):
+                for it2 in range(0, lhs_transient_.shape[0]):   
+                    lhs_transient_[it1][it2] = lhs_transient_[it1][it2] + value_.calc_prop(mesh_, user_, "rho", "cells", it1) \
+                                               * mesh_.cells[it1].volume / time_step
+                rhs_transient_[it1][0] = rhs_transient_[it1][0] + mesh_.cells[it1].volume * user_.inits.loc[0, what] / \
+                                         (time_step * HAPropsSI("Vha", "P", user_.inits.loc[0, "P"], "T", user_.inits.loc[0, "T"], "W", user_.constants.loc[0, "Wamb"]))
         else:
-            for i in self.lhs.shape[0]:
-                for j in self.lhs.shape[1]:
-                    lhs_transient__[i][j] = lhs_transient__[i][j] + args[0].cells[i].prop.rhs[-1] * args[0].cells[i].volume / \
-                                            (2 * args[2])
-            for i in range(0, len(self.rhs)):
-                rhs_transient__[i][0] = self.rhs[i][0] - args[0].cells[i].prop.rhs[-2] * \
-                                        args[0].cells[i].volume * args[0].cells[i].value[args[1]][-2] / \
-                                        (2 * args[2])
-        return lhs_transient__, rhs_transient__    
+            for it1 in range(0, lhs_transient_.shape[0]):
+                for it2 in range(0, lhs_transient_.shape[0]):   
+                    lhs_transient_[it1][it2] = lhs_transient_[it1][it2] + value_.calc_prop(mesh_, user_, "rho", "cells", it1) \
+                                               * mesh_.cells[it1].volume / (2 * time_step)
+                rhs_transient_[it1][0] = rhs_transient_[it1][0] + mesh_.cells[it1].volume * value_.cells("unit", what)[it1][0] / \
+                                         (time_step * HAPropsSI("Vha", "P", value_.cells("unit", "P")[it1][0], "T", value_.cells("unit", "T")[it1][0], "W", user_.constants.loc[0, "Wamb"]))
+        return lhs_transient_.tocsr(), rhs_transient_.tocsr()    
     
 class pcorrect(linear):
-    def __init__(self, *args):
+    def __init__(self, mesh_ : mesh):
         # args mesh : mesh
-        super().__init__(args[0])
-    def calccoef(self, *args):
+        super().__init__(mesh_, what = ["fluid"])
+    def calc_coef(self, mesh_ : mesh, u_ref, v_ref, w_ref, what : str, time_step):
         # args mesh : mesh, u_ref : momentum, v_ref : momentum, w_ref : momentum, what : str, time_step : int/double
         # fluid only
         prev_row = 0
