@@ -309,13 +309,17 @@ class clust:
         print("faces: {}\narea: {}\ncentroid: {}".format(self.faces, self.area, self.centroid))
         return
 class connect:
-    def __init__(self, cc_args : dict, fc_args : dict):
+    def __init__(self, cc_args, fc_args):
+        for it1 in list(cc_args.keys()):
+            cc_args[it1] = np.array(cc_args[it1])
+        for it2 in list(fc_args.keys()):
+            fc_args[it1] = np.array(fc_args[it1])
         self.__cc = cc_args
         self.__fc = fc_args
     @classmethod
     def copy(self, other):
-        self.__cc = deepcopy(other.__cc)
-        self.__fc = deepcopy(other.__fc)
+        self.__cc = other.__cc.copy()
+        self.__fc = other.__fc.copy()
         return self
     @property
     def cc(self):
@@ -324,20 +328,14 @@ class connect:
     def fc(self):
         return self.__fc
 
-    def get_coo(self, var : str, which : str):
+    def iter(self, var : str, which : str):
         check = str("_connect__" + var)
-        if check in dir(self):
-            return self.__dict__[check][which].tocoo()
+        if which in list(self.__dict__[check].keys()):
+            toarray = np.transpose(self.__dict__[check][which])
+            return toarray
         else:
-            print("Variable not found")
-        return
-    def get_csr(self, var : str, which : str):
-        check = str("_connect__" + var)
-        if check in dir(self):
-            return self.__dict__[check][which].tocsr()
-        else:
-            print("Variable not found")
-        return
+            print("Key not found")
+            return 0
     def print_elements(self):
         print("cc:\n")
         print(self.cc)
@@ -498,8 +496,6 @@ class mesh:
                 cc_dict[which_cc] = [it1]
             else:
                 cc_dict[which_cc].append(it1)
-        for it1, it2 in cc_dict.items():
-            cc_dict[it1] = sparse.lil_matrix(it2)
         for it1 in bound_args:
             which_fc = [it2 for it2 in ["fluid", "solid"] if it2 in cell_dict[it1[0]].domain[0]]
             which_fc = which_fc[0]
@@ -507,8 +503,6 @@ class mesh:
                 fc_dict[which_fc] = [it1]
             else:
                 fc_dict[which_fc].append(it1)
-        for it1, it2 in fc_dict.items():
-            fc_dict[it1] = sparse.lil_matrix(it2)
         if len(list(clust_args.keys())) > 0:
             cc_dict["s2s"] = []
             for it1 in range(0, len(list(clust_dict.keys())) - 1):
@@ -516,7 +510,6 @@ class mesh:
                     view1, view2 = clust.match_view(points_dict, face_dict, clust_dict[list(clust_dict.keys())[it1]], clust_dict[list(clust_dict.keys())[it2]])
                     cc_dict["s2s"].append([it1, it2, view1])
                     cc_dict["s2s"].append([it2, it1, view2])
-            cc_dict["s2s"] = sparse.lil_matrix(cc_dict["s2s"])
         connect_obj = connect(cc_dict, fc_dict)
         # geom args
         geom_obj = geom(points_dict, face_dict, cell_dict, neigh_args)
@@ -576,32 +569,12 @@ class mesh:
         return
 
 ##### cfd linear ##########
-import numpy as np
 from numpy import linalg
 import scipy.sparse as sparse
 from CoolProp.HumidAirProp import HAPropsSI
-import math
 # import mpi4py
 # import cfd_scheme
 
-def gauss_seidel(A, b, x = np.array([0, 0, 0], dtype = Decimal()), max_iterations = 50, tolerance = 0.005):
-    #x is the initial condition
-    iter1 = 0
-    #Iterate
-    for k in range(max_iterations):
-        iter1 = iter1 + 1
-        print ("The solution vector in iteration", iter1, "is:", x)    
-        x_old  = x.copy()
-        #Loop over rows
-        for i in range(A.shape[0]):
-            x[i] = (b[i] - np.dot(A[i,:i], x[:i]) - np.dot(A[i,(i+1):], x_old[(i+1):])) / A[i ,i]
-        #Stop condition 
-        #LnormInf corresponds to the absolute value of the greatest element of the vector.
-        LnormInf = max(abs((x - x_old)))/max(abs(x_old))   
-        print ("The L infinity norm in iteration", iter1,"is:", LnormInf)
-        if  LnormInf < tolerance:
-            break
-    return x
 class user:
     def __init__(self, *args):
         # args init_value : str, solid_props : str, const_value : str
@@ -610,198 +583,176 @@ class user:
         self.__constants = pd.read_csv(os.getcwd() + "\\problem\\test\\" + args[2])
     @property
     def inits(self):
-        pass
-    @inits.getter
-    def inits(self):
         return self.__inits
-    @inits.deleter
-    def inits(self):
-        del self.__inits
     @property
-    def solid_props(self):
-        pass
-    @solid_props.getter
-    def solid_props(self):
-        return self.__solid_props
-    @solid_props.deleter
     def solid_props(self):
         return self.__solid_props
     @property
-    def constants(self):
-        pass
-    @constants.getter
     def constants(self):
         return self.__constants
-    @constants.deleter
-    def constants(self):
-        del self.__constants
 class value:
     def __init__(self, mesh_ : mesh, user_ : user):
         # args mesh : mesh
         # all domains and clusts P, Pcor, u, v, w, k, e, T, q
         face_unit = dict({}); cell_unit = dict({})
         face_grad = dict({}); cell_grad = dict({})
-        P_init = Decimal(user_.inits.loc[0, "P"]); Pcor_init = Decimal(user_.inits.loc[0, "Pcor"])
-        u_init = Decimal(user_.inits.loc[0, "u"]); v_init = Decimal(user_.inits.loc[0, "v"])
-        w_init = Decimal(user_.inits.loc[0, "w"]); k_init = Decimal(user_.inits.loc[0, "k"])
-        e_init = Decimal(user_.inits.loc[0, "e"]); T_init = Decimal(user_.inits.loc[0, "T"])
-        q_init = Decimal(user_.inits.loc[0, "q"])
-        for it1, it2 in mesh_.cells.items():
-            cell_unit[it1] = dict({"P": [Decimal(P_init), Decimal(P_init)],
-                                     "Pcor": [Decimal(Pcor_init), Decimal(Pcor_init)],
-                                     "u": [Decimal(u_init), Decimal(u_init)],
-                                     "v": [Decimal(v_init), Decimal(v_init)],
-                                     "w": [Decimal(w_init), Decimal(w_init)],
-                                     "k": [Decimal(k_init), Decimal(k_init)],
-                                     "e": [Decimal(e_init), Decimal(e_init)],
-                                     "T": [Decimal(T_init), Decimal(T_init)],
-                                     "q": [Decimal(q_init), Decimal(q_init)]})
-            cell_grad[it1] = dict({"P": [[Decimal(P_init), Decimal(P_init), Decimal(P_init)],
-                                         [Decimal(P_init), Decimal(P_init), Decimal(P_init)]],
-                                    "Pcor": [[Decimal(Pcor_init), Decimal(Pcor_init), Decimal(Pcor_init)],
-                                         [Decimal(Pcor_init), Decimal(Pcor_init), Decimal(Pcor_init)]],
-                                     "u": [[Decimal(u_init), Decimal(u_init), Decimal(u_init)],
-                                           [Decimal(u_init), Decimal(u_init), Decimal(u_init)]],
-                                     "v": [[Decimal(v_init), Decimal(v_init), Decimal(v_init)],
-                                           [Decimal(v_init), Decimal(v_init), Decimal(v_init)]],
-                                     "w": [[Decimal(w_init), Decimal(w_init), Decimal(w_init)],
-                                           [Decimal(w_init), Decimal(w_init), Decimal(w_init)]],
-                                     "k": [[Decimal(k_init), Decimal(k_init), Decimal(k_init)],
-                                           [Decimal(k_init), Decimal(k_init), Decimal(k_init)]],
-                                     "e": [[Decimal(k_init), Decimal(e_init), Decimal(e_init)],
-                                           [Decimal(k_init), Decimal(e_init), Decimal(e_init)]],
-                                     "T": [[Decimal(T_init), Decimal(T_init), Decimal(T_init)],
-                                           [Decimal(T_init), Decimal(T_init), Decimal(T_init)]],
-                                     "q": [[Decimal(q_init), Decimal(q_init), Decimal(q_init)],
-                                           [Decimal(q_init), Decimal(q_init), Decimal(q_init)]]})            
-        for it1, it2 in mesh_.faces.items():
-            face_unit[it1] = dict({"P": [Decimal(P_init), Decimal(P_init)],
-                                     "Pcor": [Decimal(Pcor_init), Decimal(Pcor_init)],
-                                     "u": [Decimal(u_init), Decimal(u_init)],
-                                     "v": [Decimal(v_init), Decimal(v_init)],
-                                     "w": [Decimal(w_init), Decimal(w_init)],
-                                     "k": [Decimal(k_init), Decimal(k_init)],
-                                     "e": [Decimal(e_init), Decimal(e_init)],
-                                     "T": [Decimal(T_init), Decimal(T_init)],
-                                     "q": [Decimal(q_init), Decimal(q_init)]})
-            face_grad[it1] = dict({"P": [[Decimal(P_init), Decimal(P_init), Decimal(P_init)],
-                                         [Decimal(P_init), Decimal(P_init), Decimal(P_init)]],
-                                    "Pcor": [[Decimal(Pcor_init), Decimal(Pcor_init), Decimal(Pcor_init)],
-                                         [Decimal(Pcor_init), Decimal(Pcor_init), Decimal(Pcor_init)]],
-                                     "u": [[Decimal(u_init), Decimal(u_init), Decimal(u_init)],
-                                           [Decimal(u_init), Decimal(u_init), Decimal(u_init)]],
-                                     "v": [[Decimal(v_init), Decimal(v_init), Decimal(v_init)],
-                                           [Decimal(v_init), Decimal(v_init), Decimal(v_init)]],
-                                     "w": [[Decimal(w_init), Decimal(w_init), Decimal(w_init)],
-                                           [Decimal(w_init), Decimal(w_init), Decimal(w_init)]],
-                                     "k": [[Decimal(k_init), Decimal(k_init), Decimal(k_init)],
-                                           [Decimal(k_init), Decimal(k_init), Decimal(k_init)]],
-                                     "e": [[Decimal(k_init), Decimal(e_init), Decimal(e_init)],
-                                           [Decimal(k_init), Decimal(e_init), Decimal(e_init)]],
-                                     "T": [[Decimal(T_init), Decimal(T_init), Decimal(T_init)],
-                                           [Decimal(T_init), Decimal(T_init), Decimal(T_init)]],
-                                     "q": [[Decimal(q_init), Decimal(q_init), Decimal(q_init)],
-                                           [Decimal(q_init), Decimal(q_init), Decimal(q_init)]]})   
-        self.__cells = [cell_unit, cell_grad]; self.__faces = [face_unit, face_grad]
+        for it1 in ["P", "Pcor", "u", "v", "w", "k", "e", "T", "q"]:
+            # grad is zero at init
+            face_unit[it1] = np.full(shape=(len(list(mesh_.faces.keys())), 2), fill_value = np.full(shape=(1,2), fill_value = Decimal(user_.inits.loc[0, it1]))[0])
+            cell_unit[it1] = np.full(shape=(len(list(mesh_.cells.keys())), 2), fill_value = np.full(shape=(1,2), fill_value = Decimal(user_.inits.loc[0, it1]))[0])
+            face_grad[it1] = np.full(shape=(len(list(mesh_.faces.keys())), 2, 3), fill_value = np.full(shape=(2,3), fill_value = Decimal(0)))
+            cell_grad[it1] = np.full(shape=(len(list(mesh_.cells.keys())), 2, 3), fill_value = np.full(shape=(2,3), fill_value = Decimal(0)))
+        self.__cells = dict({"unit": cell_unit, "grad": cell_grad}); self.__faces = dict({"unit": face_unit, "grad": face_grad})
     @property
-    def cells(self, what : str):
-        return self.__cells[what]
+    def cells(self, which : str, what : str):
+        return self.__cells[which][what]
     @cells.setter
-    def cells(self, *args):
-        # args value : Decimal / list(Decimal), id : int, what : str, is_prev : bool
-        if args[2] is True:
-            self.__cells[args[1]][args[2]][0] = args[0]
+    def cells(self, which : str, id : int, what : str, value, isprev = False):
+        # only current value
+        # args which : str, value : Decimal / list(Decimal), id : int, what : str
+        if isprev is True:
+            self.__cells[which][what][id][0] = self.__cells[which][what][id][1]
         else:
-            self.__cells[args[1]][args[2]][1] = args[0]
+            self.__cells[which][what][id][1] = value
     @property
-    def faces(self, what : str):
-        return self.__faces[what]
-    @faces.getter
-    def faces(self, *args):
-        # args value : Decimal / list(Decimal), id : int, what : str, is_prev : bool
-        if args[2] is True:
-            self.__faces[args[1]][args[2]][0] = args[0]
+    def faces(self, which : str, what : str):
+        return self.__faces[which][what]
+    @faces.setter
+    def faces(self, which : str, id : int, what : str, value, isprev = False):
+        if isprev is True:
+            self.__faces[which][what][id][0] = self.__faces[which][what][id][1]
         else:
-            self.__faces[args[1]][args[2]][1] = args[0]
+            self.__faces[which][what][id][1] = value
 
+    @staticmethod
+    def gauss_seidel(A, b, x = np.zeros(shape=(1,3), dtype = Decimal)[0], max_iterations = 50, tolerance = 0.005):
+        #x is the initial condition
+        iter1 = 0
+        #Iterate
+        for k in range(max_iterations):
+            iter1 = iter1 + 1
+            print ("The solution vector in iteration", iter1, "is:", x)    
+            x_old  = x.copy()
+            #Loop over rows
+            for i in range(A.shape[0]):
+                x[i] = (b[i] - np.dot(A[i,:i], x[:i]) - np.dot(A[i,(i+1):], x_old[(i+1):])) / A[i ,i]
+            #Stop condition 
+            #LnormInf corresponds to the absolute value of the greatest element of the vector.
+            LnormInf = max(abs((x - x_old)))/max(abs(x_old))   
+            print ("The L infinity norm in iteration", iter1,"is:", LnormInf)
+            if  LnormInf < tolerance:
+                break
+        return x
+    def linear_itr(self, which : str, mesh_ : mesh, id_ : list, what : str):
+        # id [cell 1 id, cell 2 id, face id]
+        # linear face value approx
+        # current value only
+        # neighbor faces only
+        dCf1_ = mesh_.geoms.dCf(True, [id_[0], id_[2]]); dCf2_ = mesh_.geoms.dCf(True, [id_[1], id_[2]])
+        gC_ = dCf1_ / (dCf1_ + dCf2_)
+        return gC_ * self.cells(which, what)[id_[0]][1] + (1 - gC_) * self.cells(which, what)[id_[1]][1]
+    def interoplate_grad(self, mesh_ : mesh, id_ : list, what : str):
+        # id [cell 1 id, cell 2 id, face id]
+        # face grad interpolation
+        # current grad only
+        # neighbor faces only
+        dCF_ = mesh_.geoms.dCF(True, [id_[0], id_[1]])
+        eCF_ = mesh_.geoms.eCF(False, [id_[0], id_[1]])
+        lin_grad_ = self.linear_itr("grad", mesh_, id_, what)
+        self.faces("grad", id_[2], what, lin_grad_ + eCF_ * ((self.cells["unit"][what][id_[1]][1] - \
+                    self.cells["unit"][what][id_[0]][1]) / dCF_ - np.dot(lin_grad_, eCF_)))
+    def QUICK(self, mesh_ : mesh, id_ : list, what : str):
+        # id [cell id, face id]
+        # QUICK face value
+        # current grad only
+        # neighbor faces only
+        dCf_ = mesh_.geoms.dCf(False, id_)
+        self.faces("unit", id_[1], what, self.cells["unit"][what][id_[0]][1] + \
+                                              np.dot(self.cells["grad"][what][id_[0]][1] + \
+                                              self.faces["grad"][what][id_[1]][1], dCf_) / 2)
+    def least_square_itr(self, mesh_ : mesh, id_ : int, what : str):
+        # calculate Cgrad with least square iter since neighbor face values cannot yet be calculated
+        # given that fgrad can be interpolated
+        # homogenic domains only, conj face values are specified
+        lhs_ = np.zeros(shape=(3,3), dtype = Decimal)
+        rhs_ = np.zeros(shape=(1,3), dtype = Decimal)[0]
+        if "fluid" in mesh_.cells[id_].domain[0]:
+            domain_ = "fluid"
+        else:
+            domain_ = "solid"
+        neigh_face_id = np.where(mesh_.templates.iter("cc", domain_)[1] == id_)[0]
+        neigh_list = dict(zip(mesh_.templates.iter("cc", domain_)[0][neigh_face_id],
+                              mesh_.templates.iter("cc", domain_)[2][neigh_face_id]))
+        for it1 in range(0, 3):
+            weight_rhs_ = Decimal(0)
+            for it2 in range(0, 3):
+                weight_lhs_ = Decimal(0)
+                for it3 in mesh_.cells[id_].faces:
+                    dCf_ = mesh_.geoms.dCf(False, [id_, it3])
+                    weight_lhs_ += Decimal(1 / mesh_.geoms.dCf(True, [id_, it3])) * dCf_[it1] * dCf_[it2]
+                lhs_[it1][it2] = weight_lhs_
+            for it2 in mesh_.cells[id_].faces:
+                dCf_ = mesh_.geoms.dCf(False, [id_, it3])
+                if it2 in list(neigh_list.keys()):
+                    weight_rhs_ += Decimal(1 / mesh_.geoms.dCf(True, [id_, it3])) * dCf_[it1] * \
+                                   (self.cells("unit", what)[neigh_list[it2]][1] - self.cells("unit", what)[id_][1])
+            rhs_[it1] = weight_rhs_
+        grad_ = self.gauss_seidel(lhs_, rhs_)
+        self.cells("grad", id_, what, grad_)
+    def update_value(self, mesh_ : mesh, what : str, new_values : np.array):
+        # new_values in np.array(shape=(1,n), dtype = Decimal)[0]
+        for it1 in list(mesh_.cells.keys()):
+            self.cells("unit", it1, what, new_values[it1])
+        for it1 in list(mesh_.cells.keys()):
+            self.least_square_itr(mesh_, it1, what)
+        for it1, it2 in mesh_.faces.items():
+            if "none" in it2.boundary:
+                domain_ = [it3 for it3 in list(mesh_.templates.cc.keys()) if it1 in mesh_.templates.iter("cc", it3)[0]]
+                for it3 in mesh_.templates.cc[domain_][np.where(mesh_.templates.iter("cc", domain_)[0] == it1)]:
+                    self.interpolate_grad(mesh_, it3, what)
+                    self.QUICK(mesh_, [it3[0], it3[2]], what)
+    def calc_rmsr(self, what : str):
+        # new - prev, cell values only
+        res_ = Decimal(0)
+        for it1 in self.cells["unit"][what]:
+            res_ += Decimal(pow(it1[1] - it1[0], 2))
+        res_ = Decimal(res_) / Decimal(self.cells["unit"][what].shape[0])
+        return res_
+    def forward_time(self, what : str):
+        for it1 in range(0, self.cells["unit"][what].shape[0]):
+            self.cells("unit", it1, what, 0, isprev = True)
+            self.cells("grad", it1, what, 0, isprev = True)
+        for it1 in range(0, self.faces["unit"][what].shape[0]):
+            self.faces("unit", it1, what, 0, isprev = True)
+            self.faces("grad", it1, what, 0, isprev = True)
+    def calc_prop(self):
+        return
 class linear:
     def __init__(self, mesh_ : mesh, what = ["fluid", "solid", "conj"]):
-        self.__lhs = dict({}); self.__rhs = dict({})
-        for it1 in what:
-            self.__lhs[it1] = mesh_.templates.cc[it1]
-            self.__rhs[it1] = np.zeros(shape=(mesh_.templates.cc[it1].shape[0], 1), dtype = Decimal)
-    @staticmethod
-    def linear_itr(*args):
-        # args, mesh : mesh, value : value, id : [cell1, cell2, face], what : [variable name, dict key]
-        gC = args[0].geoms.dCf(True, [args[2][0], args[2][2]]) / \
-            (args[0].geoms.dCf(True, [args[2][0], args[2][2]]) + \
-            args[0].geoms.dCf(True, [args[2][1], args[2][2]]))
-        return gC * args[1].cells[args[3][0]]
-        
-        gC = args[0].geoms("dCf", args[3], args[4], True) / \
-             (args[0].geoms("dCf", args[3], args[4], True) + \
-             args[0].geoms("dCf", args[2], args[4], True))
-        return gC * args[0].cells[args[2]](args[1][0])[args[1][1]][-1] + \
-               (1 - gC) * args[0].cells[args[3]](args[1][0])[args[1][1]][-1]
-    def QUICK_grad(self, *args):
-        # args mesh : mesh, what : dict key, cell id 1 : int, cell id 2 : int, face id : int
-        grad__ = self.linearitr(args[0], ["grad", args[1]], args[2], args[3], args[4])
-        dCF__ = args[0].geoms("dCF", args[2], args[3], True)
-        eCF__ = args[0].geoms("eCF", args[2], args[3], False)
-        return grad__ + ((args[0].cells[args[3]].value[args[1]][-1] + \
-               args[0].cells[args[2]].value[args[1]][-1]) / dCF__) - \
-               (np.dot(grad__, eCF__)) * eCF__
-    def QUICK_value(*args):
-        # args mesh : mesh, what : dict key, cell id : int, face id : int
-        return args[0].cells[args[2]].value[args[1]][-1] + 0.5 * np.dot(
-               (args[0].cells[args[2]].grad[args[1]][-1] +
-               args[0].faces[args[3]].grad[args[1]][-1]),
-               args[0].geoms("dCf", args[2], args[3], False))
-    def least_square_itr(self, *args):
-        # mesh : mesh, cell id : int, what : str
-        check = args[0].templates.neighbor["all"].toarray()[args[1], :]
-        neighbor__ = [i for i in range(0, check.shape[0]) if check[i] != 0]
-        lhs_leastsquare = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]], dtype = float)
-        rhs_leastsquare = np.array([[0], [0], [0]])
-        for i in range(0, 3):
-            rhs_coef__ = 0.00
-            for j in range(0, 3):
-                lhs_coef__ = 0.00
-                for k in neighbor__:
-                    dCF__ = args[0].geoms("dCF", args[1], k, False)
-                    dCF_val__ = args[0].geoms("dCF", args[1], k, True)
-                    lhs_coef__ += dCF__[i] * dCF__[j] / dCF_val__
-            for k in neighbor__:
-               dCF__ = args[0].geoms("dCF", args[1], k, False)
-               dCF_val__ = args[0].geoms("dCF", args[1], k, True)
-               rhs_coef__ += dCF__[i] * (self.cells[k].value[args[2]][-1] - \
-                             self.cells[i].value[args[2]][-1]) / dCF_val__
-            lhs_leastsquare[i][j] = lhs_coef__
-            rhs_leastsquare[i][0] = rhs_coef__
-        grad__ = gauss_seidel(lhs_leastsquare, rhs_leastsquare)
-        return grad__
-    def update_value(self, *args):
-        # args mesh : mesh, what : str, new_values : np.array([])
-        # C and F value
-        for i in args[0].cells.keys():
-            args[0].cells.value[args[1]][-1] = args[2][i]
-        # gradC least square itr based of C and F values
-        for i in args[0].cells.keys():
-            args[0].cells.grad[args[1]][-1] = self._leastsquareitr(i, args[1])
-        # gradf and fvalue
-        face_list = list(self.faces.keys())
-        check = args[0].templates.neighbor["all"].tocoo()
-        for i, j, k in zip(check.row, check.col, check.data):
-            if k in check:
-                args[0].faces[k].grad[args[1]][-1] = self.QUICKgrad(args[0], args[1], i, j, k)
-                args[0].faces[k].value[args[1]][-1] = self.QUICKvalue(args[0], args[1], i, k)
-                face_list.remove(k)
-        return
-    def calc_rmsr(*args):
-        # args value new : np.array([]), value prev : np.array([])
-        res__ = np.sum(np.array([pow(args[0][i] - args[1][i], 2) for i in range(0, args[0].shape[0])]))
-        res__ = np.sqrt(res__ / args[0].shape[0])
-        return res__
+        self.__iter = what
+        cc_size_lim = np.max(np.array([np.max(mesh_.templates.iter("cc", it1)[1]) for it1 in what]))
+        # lil matrix generator
+        # cells will always have at least one neighboring cell
+        # sparse can only store float values. float 0 as init
+        self.__lhs = sparse.lil_matrix(np.zeros(shape=(cc_size_lim, cc_size_lim)), dtype = float)
+        self.__rhs = sparse.lil_matrix(np.zeros(shape=(cc_size_lim, 1)), dtype = float)
+    @property
+    def iter(self):
+        return self.__iter
+    @property
+    def lhs(self):
+        # return csr matrix
+        return self.__lhs.tocsr()
+    @lhs.setter
+    def lhs(self, id : list, val : Decimal):
+        self.__lhs[id[0], id[1]] = float(val)
+    @property
+    def rhs(self):
+        return self.__rhs.tocsr()
+    @rhs.setter
+    def rhs(self, id : list, val : Decimal):
+        self.__rhs[id[0], id[1]] = float(val)
+    
     def calc_transient(self, *args):
         # void
         # args mesh : mesh, what : str, time_step : int/double, current_time : int
@@ -825,7 +776,7 @@ class linear:
                 rhs_transient__[i][0] = self.rhs[i][0] - args[0].cells[i].prop.rhs[-2] * \
                                         args[0].cells[i].volume * args[0].cells[i].value[args[1]][-2] / \
                                         (2 * args[2])
-        return lhs_transient__, rhs_transient__
+        return lhs_transient__, rhs_transient__    
     
 class pcorrect(linear):
     def __init__(self, *args):
