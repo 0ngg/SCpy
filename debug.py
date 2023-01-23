@@ -328,10 +328,10 @@ class connect:
     def fc(self):
         return self.__fc
 
-    def iter(self, var : str, which : str):
-        check = str("_connect__" + var)
+    def iter(self, which : str, what : str):
+        check = str("_connect__" + which)
         if which in list(self.__dict__[check].keys()):
-            toarray = np.transpose(self.__dict__[check][which])
+            toarray = np.transpose(self.__dict__[check][what])
             return toarray
         else:
             print("Key not found")
@@ -607,22 +607,28 @@ class value:
     def cells(self, which : str, what : str):
         return self.__cells[which][what]
     @cells.setter
-    def cells(self, which : str, id : int, what : str, value, isprev = False):
+    def cells(self, which : str, what : str, id : int, value, isprev = False, add = False):
         # only current value
         # args which : str, value : Decimal / list(Decimal), id : int, what : str
         if isprev is True:
             self.__cells[which][what][id][0] = self.__cells[which][what][id][1]
         else:
-            self.__cells[which][what][id][1] = value
+            if add is True:
+                self.__cells[which][what][id][1] += value
+            else:
+                self.__cells[which][what][id][1] = value
     @property
     def faces(self, which : str, what : str):
         return self.__faces[which][what]
     @faces.setter
-    def faces(self, which : str, id : int, what : str, value, isprev = False):
+    def faces(self, which : str, what : str, id : int, value, isprev = False, add = False):
         if isprev is True:
             self.__faces[which][what][id][0] = self.__faces[which][what][id][1]
         else:
-            self.__faces[which][what][id][1] = value
+            if add is True:
+                self.__faces[which][what][id][1] += value
+            else:
+                self.__faces[which][what][id][1] = value
 
     @staticmethod
     def gauss_seidel(A, b, x = np.zeros(shape=(1,3), dtype = Decimal)[0], max_iterations = 50, tolerance = 0.005):
@@ -659,7 +665,7 @@ class value:
         dCF_ = mesh_.geoms.dCF(True, [id_[0], id_[1]])
         eCF_ = mesh_.geoms.eCF(False, [id_[0], id_[1]])
         lin_grad_ = self.linear_itr("grad", mesh_, id_, what)
-        self.faces("grad", id_[2], what, lin_grad_ + eCF_ * ((self.cells["unit"][what][id_[1]][1] - \
+        self.faces("grad", what, id_[2], lin_grad_ + eCF_ * ((self.cells["unit"][what][id_[1]][1] - \
                     self.cells["unit"][what][id_[0]][1]) / dCF_ - np.dot(lin_grad_, eCF_)))
     def QUICK(self, mesh_ : mesh, id_ : list, what : str):
         # id [cell id, face id]
@@ -667,7 +673,7 @@ class value:
         # current grad only
         # neighbor faces only
         dCf_ = mesh_.geoms.dCf(False, id_)
-        self.faces("unit", id_[1], what, self.cells["unit"][what][id_[0]][1] + \
+        self.faces("unit", what, id_[1], self.cells["unit"][what][id_[0]][1] + \
                                               np.dot(self.cells["grad"][what][id_[0]][1] + \
                                               self.faces["grad"][what][id_[1]][1], dCf_) / 2)
     def least_square_itr(self, mesh_ : mesh, id_ : int, what : str):
@@ -680,8 +686,8 @@ class value:
             domain_ = "fluid"
         else:
             domain_ = "solid"
-        neigh_face_id = np.where(mesh_.templates.iter("cc", domain_)[1] == id_)[0]
-        neigh_list = dict(zip(mesh_.templates.iter("cc", domain_)[0][neigh_face_id],
+        neigh_face_id = np.where(mesh_.templates.iter("cc", domain_)[0] == id_)[0]
+        neigh_list = dict(zip(mesh_.templates.iter("cc", domain_)[1][neigh_face_id],
                               mesh_.templates.iter("cc", domain_)[2][neigh_face_id]))
         for it1 in range(0, 3):
             weight_rhs_ = Decimal(0)
@@ -698,11 +704,11 @@ class value:
                                    (self.cells("unit", what)[neigh_list[it2]][1] - self.cells("unit", what)[id_][1])
             rhs_[it1] = weight_rhs_
         grad_ = self.gauss_seidel(lhs_, rhs_)
-        self.cells("grad", id_, what, grad_)
+        self.cells("grad", what, id_, grad_)
     def update_value(self, mesh_ : mesh, what : str, new_values : np.array):
         # new_values in np.array(shape=(1,n), dtype = Decimal)[0]
         for it1 in list(mesh_.cells.keys()):
-            self.cells("unit", it1, what, new_values[it1])
+            self.cells("unit", what, it1, new_values[it1])
         for it1 in list(mesh_.cells.keys()):
             self.least_square_itr(mesh_, it1, what)
         for it1, it2 in mesh_.faces.items():
@@ -720,11 +726,11 @@ class value:
         return res_
     def forward_time(self, what : str):
         for it1 in range(0, self.cells["unit"][what].shape[0]):
-            self.cells("unit", it1, what, 0, isprev = True)
-            self.cells("grad", it1, what, 0, isprev = True)
+            self.cells("unit", what, it1, 0, isprev = True)
+            self.cells("grad", what, it1, 0, isprev = True)
         for it1 in range(0, self.faces["unit"][what].shape[0]):
-            self.faces("unit", it1, what, 0, isprev = True)
-            self.faces("grad", it1, what, 0, isprev = True)
+            self.faces("unit", what, it1, 0, isprev = True)
+            self.faces("grad", what, it1, 0, isprev = True)
     def calc_prop(self, mesh_ : mesh, user_ : user, prop : str, where : str, id : int):
         val = Decimal(0)
         if prop == "rho":
@@ -758,7 +764,7 @@ class value:
 class linear:
     def __init__(self, mesh_ : mesh, what = ["fluid", "solid", "conj"]):
         self.__iter = what
-        cc_size_lim = np.max(np.array([np.max(mesh_.templates.iter("cc", it1)[1]) for it1 in what]))
+        cc_size_lim = np.max(np.array([np.max(mesh_.templates.iter("cc", it1)[0]) for it1 in what]))
         # lil matrix generator
         # cells will always have at least one neighboring cell
         # sparse can only store float values. float 0 as init
@@ -772,14 +778,20 @@ class linear:
         # return csr matrix
         return self.__lhs.tocsr()
     @lhs.setter
-    def lhs(self, id : list, val : Decimal):
-        self.__lhs[id[0], id[1]] = float(val)
+    def lhs(self, id : list, val : Decimal, add = False):
+        if add is True:
+            self.__lhs[id[0], id[1]] += float(val)
+        else:
+            self.__lhs[id[0], id[1]] = float(val)
     @property
     def rhs(self):
         return self.__rhs.tocsr()
     @rhs.setter
-    def rhs(self, id : list, val : Decimal):
-        self.__rhs[id[0], id[1]] = float(val)
+    def rhs(self, id : list, val : Decimal, add = False):
+        if add is True:
+            self.__rhs[id[0], id[1]] += float(val)
+        else:
+            self.__rhs[id[0], id[1]] = float(val)
     
     def calc_transient(self, mesh_ : mesh, user_ : user, value_ : value, what : str, time_step, current_time : int):
         # void
@@ -804,927 +816,1065 @@ class linear:
     
 class pcorrect(linear):
     def __init__(self, mesh_ : mesh):
-        # args mesh : mesh
         super().__init__(mesh_, what = ["fluid"])
-    def calc_coef(self, mesh_ : mesh, u_ref, v_ref, w_ref, what : str, time_step):
-        # args mesh : mesh, u_ref : momentum, v_ref : momentum, w_ref : momentum, what : str, time_step : int/double
-        # fluid only
+    def calc_coef(self, mesh_ : mesh, user_ : user, value_ : value, u_ref, v_ref, w_ref):
+        aC_ = Decimal(0)
+        bC_ = Decimal(0)
         prev_row = 0
-        aC__ = 0.00
-        bC__ = 0.00
-        neigh__ = args[0].templates.neighbor["fluid"].tocoo()
-        for i, j, k in zip(neigh__.row, neigh__.col, neigh__.data):
-            Df_x__ = ((args[0].cells[i].volume / args[1].lhs[i][j]) + \
-                     (args[0].cells[j].volume / args[1].lhs[i][j])) / 2
-            Df_y__ = ((args[0].cells[i].volume / args[2].lhs[i][j]) + \
-                     (args[0].cells[j].volume / args[2].lhs[i][j])) / 2
-            Df_z__ = ((args[0].cells[i].volume / args[3].lhs[i][j]) + \
-                     (args[0].cells[j].volume / args[3].lhs[i][j])) / 2
-            Sf__  = args[0].geoms("Sf", i, k, False)
-            dCF__ = args[0].geoms("dCF", i, j, False)
-            Dau_f__ = (pow(Df_x__ * Sf__[0], 2) + pow(Df_y__ * Sf__[1], 2) +
-                      pow(Df_z__ * Sf__[2], 2)) / (dCF__[0] * Df_x__ * Sf__[0] +
-                      dCF__[1] * Df_y__ * Sf__[1] + dCF__[2] * Df_z__ * Sf__[2])
-            if prev_row == i:
-                aC__ += args[0].faces[k].prop.rhs[-1] * Dau_f__
-                bC__ += args[0].faces[k].prop.rhs[-1] * \
-                        np.dot(np.array([args[1].faces[k].value["u"][-1],
-                        args[1].faces[k].value["v"][-1],
-                        args[1].faces[k].value["w"][-1]]), Sf__) - \
-                        np.dot(np.array([[Df_x__, 0, 0], [0, Df_y__, 0], [0, 0, Df_z__]]) * \
-                        args[0].faces[k].grad["P"] - super().linearitr(args[0], ["grad", "P"], i, j, k), \
-                        Sf__)
-                self.lhs[i][j] = -args[0].faces[k].prop.rhs[-1] * Dau_f__
-                prev_row = i
+        cc_ = mesh_.templates.iter("cc", "fluid"); cc_ = sorted(zip(cc_[0], cc_[1], cc_[2]), key = lambda x: x[0])
+        for it1, it2, it3 in cc_:
+            rho_f_ = value_.calc_prop(mesh_, user_, "rho", "faces", it3)
+            Df_x_ = ((mesh_.cells[it1].volume / u_ref.lhs()[it1, it2]) + (mesh_.cells[it2].volume / u_ref.lhs()[it1, it2])) / 2
+            Df_y_ = ((mesh_.cells[it1].volume / v_ref.lhs()[it1, it2]) + (mesh_.cells[it2].volume / v_ref.lhs()[it1, it2])) / 2
+            Df_z_ = ((mesh_.cells[it1].volume / w_ref.lhs()[it1, it2]) + (mesh_.cells[it2].volume / w_ref.lhs()[it1, it2])) / 2
+            Sf_ = mesh_.geoms.Sf(False, it1, it3)
+            dCF_ = mesh_.geoms.dCF(False, it1, it2)
+            Dau_f_ = (pow(Df_x_ * Sf_[0], 2) + pow(Df_y_ * Sf_[1], 2) + pow(Df_z_ * Sf_[2], 2) / \
+                     (dCF_[0] * Df_x_ * Sf_[0] + dCF_[1] * Df_y_ * Sf_[1] + dCF_[2] * Df_z_ * Sf_[2]))
+            if prev_row == it1:
+                aC_ += rho_f_ * Dau_f_
+                bC_ += rho_f_ * np.dot(np.array([value_.faces["unit"]["u"][it3], value_.faces["unit"]["v"][it3],
+                                       value_.faces["unit"]["w"][it3]]), Sf_) - \
+                                       np.dot(np.array([[Df_x_, 0, 0], [0, Df_y_, 0], [0, 0, Df_z_]]) * \
+                                       value_.faces["grad"]["u"][it3] - value_.linear_itr("grad", mesh_, [it1, it2, it3], "P"), Sf_) 
+                self.lhs([it1, it2], -1 * rho_f_ * Dau_f_)
+                prev_row = it1
             else:
-                self.lhs[prev_row][prev_row] = aC__
-                self.rhs[prev_row][0] = bC__
-                aC__ = 0.00
-                bC__ = 0.00
-                aC__ += args[0].faces[k].prop.rhs[-1] * Dau_f__
-                bC__ += args[0].faces[k].prop.rhs[-1] * \
-                        np.dot(np.array([args[1].faces[k].value["u"][-1],
-                        args[1].faces[k].value["v"][-1],
-                        args[1].faces[k].value["w"][-1]]), Sf__) - \
-                        np.dot(np.array([[Df_x__, 0, 0], [0, Df_y__, 0], [0, 0, Df_z__]]) * \
-                        args[0].faces[k].grad["P"] - super().linearitr(args[0], ["grad", "P"], i, j, k), \
-                        Sf__)
-                self.lhs[i][j] = -args[0].faces[k].prop.rhs[-1] * Dau_f__
-                prev_row = i
-        self.lhs[prev_row][prev_row] = aC__
-        self.rhs[prev_row][0] = bC__
-        bound__ = args[0].templates.boundary["fluid"].tocoo()
-        for i, j, k in zip(bound__.row, bound__.col, bound__.data):
-            for l in args[0].faces[j].bound:
-                self.calcbound(args[0], l, i, j)
-        return
-    def calcbound(self, *args):
-        # void
-        # args mesh : mesh, bound name : str, cell id : int, face id : int
-        if "noslip" in args[1]:
-            args[0].faces[args[3]].value["P"][-1] = args[0].cells[args[2]].value["P"][-1] - \
-                                                          np.dot(args[0].cells[args[2]].grad["P"][-1], \
-                                                          args[0].geoms("Sf", args[2], args[3], False)) - \
-                                                          np.dot(args[0].faces[args[3]].grad["P"][-1], \
-                                                          args[0].geoms("Tf", args[2], args[3], False)) / \
-                                                          (self.lhs[args[2]][args[2]] / \
-                                                          args[0].cells[args[2]].prop.rhs[-1])
-        elif "inlet" in args[1]:
-            self.lhs[args[2]][args[2]] += args[0].faces[args[3]].prop.rhs[-1] * \
-                                             self.lhs[args[2]][args[2]] / \
-                                             args[0].cells[args[2]].prop.rhs[-1]
-        elif "outlet" in args[1]:
-            self.lhs[args[2]][0] += args[0].faces[args[3]].prop.rhs[-1] * \
-                                       self.lhs[args[2]][args[2]] / \
-                                       args[0].cells[args[2]].prop.rhs[-1]
-        else:
-            pass
-        return
-    def calccorrect(self, *args):
-        # void
-        # args mesh : mesh, u_ref : momentum, v_ref : momentum, w_ref : momentum
-        for i in args[0].cells.keys():
-            pcor_C__ = -args[0].cells[i].prop.rhs[-1] * args[0].cells[i].volume * \
-                        args[0].cells[i].grad["Pcor"][-1] / self.lhs[i][i] 
-            args[0].cells[i].value["u"][-1] += pcor_C__[0]
-            args[0].cells[i].value["v"][-1] += pcor_C__[1]
-            args[0].cells[i].value["w"][-1] += pcor_C__[2]
-            args[0].cells[i].value["P"][-1] += args[0].cells[i].value["Pcor"][-1]
-        neigh__ = args[0].templates.neighbor["fluid"].tocoo()
-        for i, j, k in zip(neigh__.row, neigh__.col, neigh__.data):
-            Df_x__ = ((args[0].cells[i].volume / args[1].lhs[i][j]) + \
-                     (args[0].cells[j].volume / args[1].lhs[i][j])) / 2
-            Df_y__ = ((args[0].cells[i].volume / args[2].lhs[i][j]) + \
-                     (args[0].cells[j].volume / args[2].lhs[i][j])) / 2
-            Df_z__ = ((args[0].cells[i].volume / args[3].lhs[i][j]) + \
-                     (args[0].cells[j].volume / args[3].lhs[i][j])) / 2
-            Sf__  = args[0].geoms("Sf", i, k, False)
-            pcor_f__ = -args[0].faces[k].prop.rhs[-1] * \
-                       np.dot(np.array([[Df_x__, 0, 0], [0, Df_y__, 0], [0, 0, Df_z__]]) \
-                       * args[0].faces[k].grad["Pcor"][-1], Sf__)
-            args[0].faces[k].value["u"][-1] += pcor_f__[0]
-            args[0].faces[k].value["v"][-1] += pcor_f__[1]
-            args[0].faces[k].value["w"][-1] += pcor_f__[2]  
-        return
-    def itersolve(self, *args):
-        # GMRES
-        # args mesh : mesh, under_relax : double, tol : double, max_iter : int, time_step : float, u :momentum, v : momentum, w : momentum, current_time : int
-        self.calccoef(args[5], args[6], args[7])
-        lhs_transient, rhs_transient = super().calctransient(args[0], "Pcor", args[4], args[8])
-        for i in range(0, lhs_transient.shape[0]):
-            lhs_transient[i][i] = lhs_transient[i][i] / args[1]
-        A = lambda x: sparse.linalg.spsolve(lhs_transient, x)
-        under_relax_b = np.transpose(np.array([[lhs_transient[i][i] * args[0].cells[i].value["Pcor"][-1] * (1 - args[1]) \
-                        for i in range(0, lhs_transient.shape[0])]]))
-        b = self.rhs + under_relax_b
-        x, exitCode = sparse.linalg.gmres(A, b, tol = args[2], maxiter = args[3])
-        prev_x = np.array([args[0].cells[i].value["Pcor"]][-1] for i in args[0].cells.keys())
-        rmsr__ = super().calcrmsr(np.flatten(x), prev_x)
-        print("{} [{}]; status: {}, prev. value RMSR = {}".format("Pcor", args[8], exitCode, rmsr__))
-        # update value and grad
-        self.updatevalue(args[0], "Pcor", np.flatten(x))
-        self.calccorrect(args[0], args[5], args[6], args[7])
-        return rmsr__
-
+                self.lhs([it1, it1], aC_); self.rhs([it1, 0], bC_)
+                aC_ = Decimal(0); bC_ = Decimal(0)
+                aC_ += rho_f_ * Dau_f_
+                bC_ += rho_f_ * np.dot(np.array([value_.faces["unit"]["u"][it3], value_.faces["unit"]["v"][it3],
+                                       value_.faces["unit"]["w"][it3]]), Sf_) - \
+                                       np.dot(np.array([[Df_x_, 0, 0], [0, Df_y_, 0], [0, 0, Df_z_]]) * \
+                                       value_.faces["grad"]["u"][it3] - value_.linear_itr("grad", mesh_, [it1, it2, it3], "P"), Sf_) 
+                self.lhs([it1, it2], -1 * rho_f_ * Dau_f_)
+                prev_row = it1
+        self.lhs([it1, it1], aC_); self.rhs([it1, 0], bC_)
+        fc_ = mesh_.templates.iter("fc", "fluid")
+        for it1, it2, it3 in zip(fc_[0], fc_[1], fc_[2]):
+            self.calc_bound(mesh_, user_, value_, it1, it2)
+    def calc_bound(self, mesh_ : mesh, user_ : user, value_ : value, row : int, col : int):
+        if "noslip" in mesh_.faces[col].boundary:
+            rho_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", row)
+            fvalue_ = value_.cells("unit", "P")[row][1] - np.dot(value_.cells("grad", "P")[row][1], mesh_.geoms.Sf(False, row, col)) - \
+                      np.dot(value_.faces("grad", "P")[col][1], mesh_.geoms.Tf(False, row, col)) / (self.lhs[row, row] / rho_C_)
+            value_.faces("unit", "P", col, fvalue_)
+        elif "inlet" in mesh_.faces[col].boundary:
+            rho_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", row)
+            rho_f_ = value_.calc_prop(mesh_, user_, "rho", "faces", col)
+            cvalue_ = rho_f_ * self.lhs()[row, row] / rho_C_
+            self.lhs([row, row], cvalue_, add = True)
+        elif "outlet" in mesh_.faces[col].boundary:
+            rho_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", row)
+            rho_f_ = value_.calc_prop(mesh_, user_, "rho", "faces", col)
+            cvalue_ = rho_f_ * self.lhs()[row, row] / rho_C_
+            self.lhs([row, row], cvalue_, add = True)
+    def calc_correct(self, mesh_ : mesh, user_ : user, value_ : value, u_ref, v_ref, w_ref):
+        for it1 in list(mesh_.cells.keys()):
+            rho_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1)
+            pcor_C_ = Decimal(-1) * rho_C_ * mesh_.cells[it1].volume * value_.cells("grad", "Pcor")[it1][1] / self.lhs()[it1, it1]
+            value_.cells("unit", "u", it1, pcor_C_[0], add = True)
+            value_.cells("unit", "v", it1, pcor_C_[1], add = True)
+            value_.cells("unit", "w", it1, pcor_C_[2], add = True)
+            value_.cells("unit", "P", it1, value_.cells("unit", "Pcor")[it1][1], add = True)
+        cc_ = mesh_.templates.iter("cc", "fluid")
+        for it1, it2, it3 in zip(cc_[0], cc_[1], cc_[2]):
+            rho_f_ = value_.calc_prop(mesh_, user_, "rho", "faces", it3)
+            Df_x_ = (mesh_.cells[it1].volume / u_ref.lhs()[it1, it2] + mesh_.cells[it2].volume / u_ref.lhs()[it1, it2]) / 2
+            Df_y_ = (mesh_.cells[it1].volume / v_ref.lhs()[it1, it2] + mesh_.cells[it2].volume / v_ref.lhs()[it1, it2]) / 2
+            Df_z_ = (mesh_.cells[it1].volume / w_ref.lhs()[it1, it2] + mesh_.cells[it2].volume / w_ref.lhs()[it1, it2]) / 2
+            Sf_ = mesh_.geoms.Sf(False, it1, it3)
+            pcor_f_ = Decimal(-1) * rho_f_ * np.dot(np.array([[Df_x_, 0, 0], [0, Df_y_, 0], [0, 0, Df_z_]]) * value_.faces("grad", "Pcor")[it3][1], Sf_)
+            value_.faces("unit", "u", it3, pcor_f_[0], add = True)
+            value_.faces("unit", "v", it3, pcor_f_[1], add = True)
+            value_.faces("unit", "w", it3, pcor_f_[2], add = True)
+    def iter_solve(self, mesh_ : mesh, user_ : user, value_ : value, under_relax_, tol_, max_iter_, time_step_, current_time_, u_ref, v_ref, w_ref):
+        self.calc_coef(mesh_, user_, value_, u_ref, v_ref, w_ref)
+        lhs_transient_, rhs_transient_ = super().calc_transient(mesh_, user_, value_, "Pcor", time_step_, current_time_)
+        under_relax_b = deepcopy(rhs_transient_)
+        for it1 in range(0, lhs_transient_.shape[0]):
+            lhs_transient_[it1, it1] = lhs_transient_[it1, it1] / under_relax_
+        for it1 in range(0, rhs_transient_.shape[0]):
+            under_relax_b[it1, 0] = lhs_transient_[it1, it1] * value_.cells("unit", "Pcor")[it1][1] * (1 - under_relax_)
+        A = lambda x: sparse.linalg.spsolve(lhs_transient_, x)
+        b = rhs_transient_ + under_relax_b
+        x, exitCode = sparse.linalg.gmres(A, b, tol = tol_, maxiter = max_iter_)
+        value_.update_value(mesh_, "Pcor", np.transpose(x)[0])
+        self.calc_correct(mesh_, user_, value_, u_ref, v_ref, w_ref)
+        rmsr_ = value_.calc_rmsr("P")
+        return rmsr_
+        
 class momentum(linear):
-    def __init__(self, *args):
+    def __init__(self, mesh_ : mesh, axis_ : int):
         # args mesh : mesh, axis : int
-        super().__init__(args[0])
-        self.axis = args[1]
-    def calccoef(self, *args):
-        # args mesh : mesh, user : user, what : str, time_step : int/double
+        super().__init__(mesh_, what = ["fluid"])
+        self.__axis = axis_
+    @property
+    def axis(self):
+        return self.__axis
+    
+    def calc_coef(self, mesh_ : mesh, user_ : user, value_ : value):
         # fluid only
         prev_row = 0
-        aC__ = 0.00
-        bC__ = 0.00
+        aC__ = Decimal(0)
+        bC__ = Decimal(0)
         coor_dict = {0: "u", 1: "v", 2: "w"}
         axes = np.delete(np.array([0, 1, 2]), self.axis)
-        neigh__ = args[0].templates.neighbor["fluid"].tocoo()
-        for i, j, k in zip(neigh__.row, neigh__.col, neigh__.data):
-            Sf__  = args[0].geoms("Sf", i, k, False)
-            dCf__ = args[0].geoms("dCf", i, k, False)
-            eCF__ = args[0].geoms("eCF", i, j, False)
-            dCF__ = args[0].geoms("dCF", i, j, True)
-            v__ = np.array([0.00, 0.00, 0.00], dtype = float)
-            v__[self.axis] = args[0].faces[k].value[coor_dict[self.axis]][-1]
-            v__[axes[0]] = args[0].faces[k].value[coor_dict[axes[0]]][-1]
-            v__[axes[1]] = args[0].faces[k].value[coor_dict[axes[1]]][-1]
-            Ret__ = args[0].faces[k].prop.rhs[-1] * pow(args[0].faces[k].value["k"][-1], 2) / \
-                    (args[0].faces[k].prop.miu[-1] * args[0].faces[k].value["e"][-1])
-            cmiu__ = 0.09 * math.exp(-3.4 / pow(1 + Ret__/50, 2))
-            St_tensor__ = np.array([args[0].faces[k].grad["u"][-1], args[0].faces[k].grad["v"][-1], \
-                          args[0].faces[k].grad["w"][-1]])
-            St_tensor__ = (St_tensor__ + np.transpose(St_tensor__)) * 0.5
-            St__ = np.sqrt(St_tensor__.dot(St_tensor__))
-            ts__ = np.min(np.array([args[0].faces[k].value["k"][-1] / args[0].faces[k].value["e"][-1], \
-                   args[0].faces[k].prop.alpha[-1] / (np.sqrt(6) * cmiu__ * St__)]))
-            miut__ = args[0].faces[k].prop.rhs[-1] * cmiu__ * args[0].faces[k].value["k"][-1] * ts__
-            graditr__  = super().linearitr(args[0], ["grad", coor_dict(self.axis)], i, j, k)
-            if prev_row == i:
-                aC__ += (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] \
-                        * np.dot(v__, Sf__)
-                aC__ += (np.dot(eCF__, Sf__) / dCF__) * (args[0].faces[k].prop.miu[-1] + miut__)
-                bC__ += np.dot(np.dot(np.dot(graditr__, eCF__) * eCF__ - \
-                        (args[0].cells[i].grad[coor_dict[self.axis]][-1] +  graditr__), dCf__) / 2, dCf__) * \
-                        args[0].faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
-                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) * (args[0].faces[k].prop.miu[-1] \
-                        + miut__)
-                bC__ += -args[0].faces[k].value["P"][-1] + (2 * args[0].faces[k].prop.rhs[-1] * \
-                         args[0].faces[k].value["k"][-1] / 3) * Sf__[self.axis]
-                self.lhs[i][j] = (np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] * \
-                                     np.dot(v__, Sf__)
-                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * (args[0].faces[k].prop.miu[-1] + miut__)
-                prev_row = i
+        cc_ = mesh_.templates.iter("cc", "fluid"); cc_ = sorted(zip(cc_[0], cc_[1], cc_[2]), key = lambda x: x[0])
+        for it1, it2, it3 in cc_:
+            rho_f_ = value_.calc_prop(mesh_, user_, "rho", "faces", it3)
+            miu_f_ = value_.calc_prop(mesh_, user_, "miu", "faces", it3)
+            Sf_ = mesh_.geoms.Sf(False, it1, it3)
+            dCf_ = mesh_.geoms.dCf(False, it1, it3)
+            eCF_ = mesh_.geoms.eCF(False, it1, it2)
+            dCF_ = mesh_.geoms.dCF(True, it1, it2)
+            v_ = np.array([0, 0, 0], dtype = Decimal)
+            v_[self.axis] = value_.faces("unit", coor_dict[self.axis])[it3][1]
+            v_[axes[0]] = value_.faces("unit", coor_dict[axes[0]])[it3][1]
+            v_[axes[1]] = value_.faces("unit", coor_dict[axes[1]])[it3][1]
+            Ret_ = rho_f_ * pow(value_.faces("unit", "k")[it3][1], 2) / (miu_f_ * value_.faces("unit", "e")[it3][1])
+            cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_ / 50, 2))
+            St_tensor_ = np.array([[value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1], value_.faces("unit", "w")[it3][1]]])
+            St_tensor_ = (St_tensor_ + np.transpose(St_tensor_))
+            St_ = np.sqrt(np.dot(St_tensor_, St_tensor_))
+            ts_ = np.min(np.array([value_.faces("unit", "k")[it3][1] / value_.faces("unit", "e")[it3][1], value_.calc_prop(mesh_, user_, "alpha", it3) / (pow(6, 0.5) * cmiu_ * St_)]))
+            miut_ = rho_f_ * cmiu_ * value_.faces("unit", "k")[it3][1] * ts_
+            graditr_ = value_.linear_itr("grad", mesh_, [it1, it2, it3], coor_dict[self.axis])
+            if prev_row == it1:
+                aC_ += (1 - np.dot(eCF_, eCF_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
+                aC_ += (np.dot(eCF_, Sf_) / dCF_) * miu_f_ + miut_
+                bC += np.dot(np.dot(np.dot(graditr_, eCF_) * eCF_ - (value_.cells("grad", coor_dict[self.axis])[it1][1] + graditr_), dCf_) / 2, dCf_) * rho_f_ * np.dot(v_, Sf_)
+                bC += np.dot(graditr_ - (np.dot(graditr_, eCF_) * eCF_), Sf_) * miu_f_ + miut_
+                lhs_value = (np.dot(eCF_, dCf_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
+                lhs_value_body = (-1) * (np.dot(eCF_, Sf_) / dCF_) * (miu_f_ + miut_)
+                self.lhs([it1, it2], lhs_value); self.lhs([it1, it2], lhs_value, add = True)
+                prev_row == it1
             else:
                 if self.axis == 1:
-                    bC__ += args[0].cells[prev_row].prop.rhs[-1] * 9.81 * args[0].cells[prev_row].volume
-                self.lhs[prev_row][prev_row] = aC__
-                self.rhs[prev_row][0] = bC__
-                aC__ = 0.00
-                bC__ = 0.00
-                aC__ += (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] \
-                        * np.dot(v__, Sf__)
-                aC__ += (np.dot(eCF__, Sf__) / dCF__) * (args[0].faces[k].prop.miu[-1] + miut__)
-                bC__ += np.dot(np.dot(np.dot(graditr__, eCF__) * eCF__ - \
-                        (args[0].cells[i].grad[coor_dict[self.axis]][-1] +  graditr__), dCf__) / 2, dCf__) * \
-                        args[0].faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
-                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) * (args[0].faces[k].prop.miu[-1] \
-                        + miut__)
-                bC__ += -args[0].faces[k].value["P"][-1] + (2 * args[0].faces[k].prop.rhs[-1] * \
-                         args[0].faces[k].value["k"][-1] / 3) * Sf__[self.axis]
-                self.lhs[i][j] = (np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] * \
-                                     np.dot(v__, Sf__)
-                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * (args[0].faces[k].prop.miu[-1] + miut__)
-                prev_row = i
+                    bC_ += value_.calc_prop(mesh_, user_, "rho", "cells", it1) * 9.81 * mesh_.cells[it1].volume
+                self.lhs([it1, it1], aC_); self.rhs([it1, 0], bC_)
+                aC_ = Decimal(0); bC_ = Decimal(0)
+                aC_ += (1 - np.dot(eCF_, eCF_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
+                aC_ += (np.dot(eCF_, Sf_) / dCF_) * miu_f_ + miut_
+                bC += np.dot(np.dot(np.dot(graditr_, eCF_) * eCF_ - (value_.cells("grad", coor_dict[self.axis])[it1][1] + graditr_), dCf_) / 2, dCf_) * rho_f_ * np.dot(v_, Sf_)
+                bC += np.dot(graditr_ - (np.dot(graditr_, eCF_) * eCF_), Sf_) * miu_f_ + miut_
+                lhs_value = (np.dot(eCF_, dCf_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
+                lhs_value_body = (-1) * (np.dot(eCF_, Sf_) / dCF_) * (miu_f_ + miut_)
+                self.lhs([it1, it2], lhs_value); self.lhs([it1, it2], lhs_value, add = True)
+                prev_row == it1
         if self.axis == 1:
-            bC__ += args[0].cells[prev_row].prop.rhs[-1] * 9.81 * args[0].cells[prev_row].volume
-        self.lhs[prev_row][prev_row] = aC__
-        self.rhs[prev_row][0] = bC__
-        bound__ = args[0].templates.boundary["fluid"].tocoo()
-        for i, j, k in zip(bound__.row, bound__.col, bound__.data):
-            v__ = np.array([0.00, 0.00, 0.00], dtype = float)
-            v__[self.axis] = args[0].faces[k].value[coor_dict[self.axis]][-1]
-            v__[axes[0]] = args[0].faces[k].value[coor_dict[axes[0]]][-1]
-            v__[axes[1]] = args[0].faces[k].value[coor_dict[axes[1]]][-1]
-            for l in args[0].faces[j].bound:
-                self.calcbound(args[0], l, i, j, v__, args[1])
-        return
-    def calcbound(self, *args):
-        # void
-        # args mesh : mesh, bound name : str, cell id : int, face id : int, v__ : np.array([]), user : user
+            bC_ += value_.calc_prop(mesh_, user_, "rho", "cells", it1) * 9.81 * mesh_.cells[it1].volume
+        self.lhs([it1, it1], aC_); self.rhs([it1, 0], bC_)
+        fc_ = mesh_.templates.iter("fc", "fluid")
+        for it1, it2, it3 in zip(fc_[0], fc_[1], fc_[2]):
+            v_ = np.array([0, 0, 0], dtype = Decimal)
+            v_[self.axis] = value_.faces("unit", coor_dict[self.axis])[it2][1]
+            v_[axes[0]] = value_.faces("unit", coor_dict[axes[0]])[it2][1]
+            v_[axes[1]] = value_.faces("unit", coor_dict[axes[1]])[it2][1]
+            self.calc_bound(mesh_, user_, value_, v_, it1, it2)            
+    def calc_bound(self, mesh_ : mesh, user_ : user, value_ : value, v_, row : int, col : int):
         coor_dict = dict({0: "u", 1: "v", 2: "w"})
-        axes = np.delete(np.array([0, 1, 2]), self.axis)
-        if "noslip" in args[1]:
-            dperp__ = pow(linalg.norm(args[0].cells[args[2]].grad[coor_dict[self.axis]][-1])**2 + \
-                      2 * args[0].cells[args[2]].value[coor_dict[self.axis]][-1], 0.5) - \
-                      linalg.norm(args[0].cells[args[2]].grad[coor_dict[self.axis]][-1])
-            Sf__ = args[0]("Sf", args[2], args[3], False)
-            eCf__ = args[0].geoms("eCf", args[2], args[3], False)
-            self.lhs[args[2]][args[2]] += args[0].faces[args[3]].prop.miu * \
-                                             Sf__[self.axis] * (1 - eCf__[self.axis]**2) / dperp__
-            self.rhs[args[2]][0] += (args[0].faces[args[3]].prop.miu[-1] * Sf__[self.axis] / dperp__) * \
-                                       ((args[0].faces[args[3]].value[coor_dict[self.axis]][-1] * (1 - eCf__[self.axis**2]))
-                                       + ((args[0].cells[args[2]].value[axes[0]][-1] - args[0].faces[args[3]].value[axes[0]][-1]) * eCf__[self.axis] * eCf__[axes[0]])
-                                       + ((args[0].cells[args[2]].value[axes[1]][-1] - args[0].faces[args[3]].value[axes[1]][-1]) * eCf__[self.axis] * eCf__[axes[1]])) \
-                                       - (args[0].faces[args[3]].value["P"][-1] * Sf__[self.axis])
-            Re__ = args[0].cells[args[2]].prop.rhs[-1] * np.sqrt(np.sum(np.array([map(lambda x: x^2, args[4])]))) * \
-                   pow(args[0].cells[args[2]].volume / args[0].cells[args[2]].prop.miu[-1])
-            tau__ = args[4][self.axis] * 8 * args[0].cells[args[2]].prop.rhs[-1] / Re__
-            self.rhs[args[2]][0] += -tau__ / (args[0].cells[args[2]].prop.rhs[-1] * 2 * args[0].cells[args[2]].volume / args[0].faces[args[3]].area)
-        elif "inlet" in args[1]:
-            # specified static pressure and velocity direction
-            Sf__ = args[0].geoms("Sf", args[2], args[3], False)
-            eCf__ = args[0].geoms("eCf", args[2], args[3], False)
-            dCf__ = args[0].geoms("dCf", args[2], args[3], False)
-            grad_vin_v0_ = np.dot(args[0].cells[args[2]].grad[coor_dict[self.axis]][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad[coor_dict[self.axis]][-1], eCf__) * eCf__))
-            grad_vin_v1_ = np.dot(args[0].cells[args[2]].grad[axes[0]][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad[axes[0]][-1], eCf__) * eCf__))
-            grad_vin_v2_ = np.dot(args[0].cells[args[2]].grad[axes[1]][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad[axes[1]][-1], eCf__) * eCf__))
-            vin_v0_ = args[0].cells[args[2]].value[coor_dict[self.axis]][-1] + np.dot(grad_vin_v0_, dCf__)
-            vin_v1_ = args[0].cells[args[2]].value[axes[0]][-1] + np.dot(grad_vin_v1_, dCf__)
-            vin_v2_ = args[0].cells[args[2]].value[axes[1]][-1] + np.dot(grad_vin_v2_, dCf__)
-            vin__ = np.array([0.00, 0.00, 0.00], dtype = float)
-            vin__[self.axis] = vin_v0_
-            vin__[axes[0]] = vin_v1_
-            vin__[axes[1]] = vin_v2_
-            self.lhs[args[2]][args[2]] += args[0].faces[args[3]].prop.rhs[-1] * np.dot(vin__, Sf__)
-            self.rhs[args[2]][0] += -args[0].faces[args[3]].prop.rhs[-1] * np.dot(vin__, Sf__) * np.dot(grad_vin_v0_, dCf__) -\
-                                        args[5].inits.loc[0, "P"] * Sf__[self.axis]
-        elif "outlet" in args[1]:
-            # fully developed flow; zero gradient at outlet
-            Sf__ = args[0].geoms("Sf", args[2], args[3], False)
-            eCf__ = args[0].geoms("eCf", args[2], args[3], False)
-            dCf__ = args[0].geoms("dCf", args[2], args[3], False)
-            grad_vout_v0_ = np.dot(args[0].cells[args[2]].grad[coor_dict[self.axis]][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad[coor_dict[self.axis]][-1], eCf__) * eCf__))
-            grad_vout_v1_ = np.dot(args[0].cells[args[2]].grad[axes[0]][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad[axes[0]][-1], eCf__) * eCf__))
-            grad_vout_v2_ = np.dot(args[0].cells[args[2]].grad[axes[1]][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad[axes[1]][-1], eCf__) * eCf__))
-            vout_v0_ = args[0].cells[args[2]].value[coor_dict[self.axis]][-1] + np.dot(grad_vout_v0_, dCf__)
-            vout_v1_ = args[0].cells[args[2]].value[axes[0]][-1] + np.dot(grad_vout_v1_, dCf__)
-            vout_v2_ = args[0].cells[args[2]].value[axes[1]][-1] + np.dot(grad_vout_v2_, dCf__)
-            vout__ = np.array([0.00, 0.00, 0.00], dtype = float)
-            vout__[self.axis] = vout_v0_
-            vout__[axes[0]] = vout_v1_
-            vout__[axes[1]] = vout_v2_
-            pout__ = args[0].cells[args[2]].value["P"][-1] + np.dot(args[0].cells[args[2]].grad["P"][-1], dCf__)
-            self.lhs[args[2]][args[2]] += args[0].faces[args[3]].prop.rhs[-1] * np.dot(vout__, Sf__)
-            self.rhs[args[2]][0] += -args[0].faces[args[3]].prop.rhs[-1] * np.dot(vout__, Sf__) * np.dot(grad_vout_v0_, dCf__) -\
-                                        pout__ * Sf__[self.axis]
+        axes = np.delete(np.array([0,1,2]), self.axis)
+        if "noslip" in mesh_.faces[col].boundary():
+            rho_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", row)
+            miu_f_ = value_.calc_prop(mesh_, user_, "miu", "faces", col)
+            miu_C_ = value_.calc_prop(mesh_, user_, "miu", "cells", row)
+            cgrad_this = value_.cells("grad", coor_dict[self.axis])[row][1]
+            cunit_this = value_.cells("unit", coor_dict[self.axis])[row][1]
+            cunit_axes0 = value_.cells("unit", coor_dict[axes[0]])[row][1]
+            cunit_axes1 = value_.cells("unit", coor_dict[axes[1]])[row][1]
+            funit_this = value_.faces("unit", coor_dict[self.axis])[col][1]
+            funit_axes0 = value_.faces("unit", coor_dict[axes[0]])[col][1]
+            funit_axes1 = value_.faces("unit", coor_dict[axes[1]])[col][1]
+            dperp_ = pow(linalg.norm(cgrad_this)**2 + 2 * cgrad_this, 0.5) - linalg.norm(cgrad_this)
+            Sf_ = mesh_.geoms.Sf(False, row, col)
+            eCf_ = mesh_.geoms.eCf(False, row, col)
+            lhs_value = miu_f_ * Sf_[self.axis] * (1 - eCf_[self.axis]**2) / dperp_
+            rhs_value = (miu_f_ * Sf_[self.axis] / dperp_) * ((funit_this * (1 - eCf_[self.axis]**2)) + \
+                        ((cunit_axes0 - funit_axes0) * eCf_[self.axis] * eCf_[axes[0]]) + \
+                        ((cunit_axes1 - funit_axes1) * eCf_[self.axis] * eCf_[axes[1]])) - \
+                        value_.faces("unit", "P")[col][1] * Sf_[self.axis]
+            self.lhs([row, row], lhs_value, add = True)
+            area_ = Decimal(np.sum(np.array([mesh_.faces[it1].area() for it1 in mesh_.cells[row].faces()])))
+            Re_ = rho_C_ * np.sqrt(np.sum(np.array([map(lambda x: x**2, v_)]))) * mesh_.cells[row].volume() / (area_ * miu_C_)
+            tau_ = v_[self.axis] * 8 * rho_C_ / Re_
+            rhs_value = Decimal(-1) * tau_ / (rho_C_ * 2 * mesh_.cells[row].volume() / mesh_.faces[col].area())
+            self.rhs([row, 0], rhs_value, add = True)
+        elif "inlet" in mesh_.faces[col].boundary():
+            Sf_ = mesh_.geoms.Sf(False, row, col)
+            eCf_ = mesh_.geoms.eCf(False, row, col)
+            dCf_ = mesh_.geoms.dCf(False, row, col)
+            grad_vin_v0_ = value_.cells("grad", coor_dict[self.axis])[row][1] - \
+                           (np.dot(value_.cells("grad", coor_dict[self.axis])[row][1], eCf_) * eCf_)
+            grad_vin_v1_ = value_.cells("grad", coor_dict[axes[0]])[row][1] - \
+                           (np.dot(value_.cells("grad", coor_dict[self.axis])[row][1], eCf_) * eCf_)
+            grad_vin_v2_ = value_.cells("grad", coor_dict[axes[1]])[row][1] - \
+                           (np.dot(value_.cells("grad", coor_dict[self.axis])[row][1], eCf_) * eCf_)
+            vin_v0_ = value_.cells("unit", coor_dict[self.axis])[row][1] + np.dot(grad_vin_v0_, dCf_)
+            vin_v1_ = value_.cells("unit", coor_dict[axes[0]])[row][1] + np.dot(grad_vin_v1_, dCf_)
+            vin_v2_ = value_.cells("unit", coor_dict[axes[1]])[row][1] + np.dot(grad_vin_v2_, dCf_)
+            vin_ = np.array([0, 0, 0], dtype = Decimal)
+            vin_[self.axis] = vin_v0_; vin_[axes[0]] = vin_v1_; vin_[axes[1]] = vin_v2_
+            lhs_value = value_.calc_prop(mesh_, user_, "rho", "faces", col) * np.dot(vin_, Sf_)
+            rhs_value = Decimal(-1) * (value_.calc_prop(mesh_, user_, "rho", "faces", col) * np.dot(vin_, Sf_) * \
+                                      np.dot(grad_vin_v0_, dCf_) + user_.constants.loc[0, "Pamb"] * Sf_[self.axis])
+            self.lhs([row, row], lhs_value, add = True)
+            self.rhs([row, 0], rhs_value, add = True)
+        elif "outlet" in mesh_.faces[col].boundary():
+            Sf_ = mesh_.geoms.Sf(False, row, col)
+            eCf_ = mesh_.geoms.eCf(False, row, col)
+            dCf_ = mesh_.geoms.dCf(False, row, col)
+            grad_vout_v0_ = value_.cells("grad", coor_dict[self.axis])[row][1] - \
+                           (np.dot(value_.cells("grad", coor_dict[self.axis])[row][1], eCf_) * eCf_)
+            grad_vout_v1_ = value_.cells("grad", coor_dict[axes[0]])[row][1] - \
+                           (np.dot(value_.cells("grad", coor_dict[self.axis])[row][1], eCf_) * eCf_)
+            grad_vout_v2_ = value_.cells("grad", coor_dict[axes[1]])[row][1] - \
+                           (np.dot(value_.cells("grad", coor_dict[self.axis])[row][1], eCf_) * eCf_)
+            vout_v0_ = value_.cells("unit", coor_dict[self.axis])[row][1] + np.dot(grad_vout_v0_, dCf_)
+            vout_v1_ = value_.cells("unit", coor_dict[axes[0]])[row][1] + np.dot(grad_vout_v1_, dCf_)
+            vout_v2_ = value_.cells("unit", coor_dict[axes[1]])[row][1] + np.dot(grad_vout_v2_, dCf_)
+            vout_ = np.array([0, 0, 0], dtype = Decimal)
+            vout_[self.axis] = vout_v0_; vout_[axes[0]] = vout_v1_; vout_[axes[1]] = vout_v2_
+            pout_ = value_.cells("unit", "P")[row][1] + np.dot(value_.cells("grad", "P")[row][1], dCf_)
+            lhs_value = value_.calc_prop(mesh_, user_, "rho", "faces", col) * np.dot(vin_, Sf_)
+            rhs_value = Decimal(-1) * (value_.calc_prop(mesh_, user_, "rho", "faces", col) * np.dot(vin_, Sf_) * \
+                                      np.dot(grad_vin_v0_, dCf_) + pout_ * Sf_[self.axis])
+            self.lhs([row, row], lhs_value, add = True)
+            self.rhs([row, 0], rhs_value, add = True)
         else:
             pass
-        return
-    def calcwall(self, *args):
-        # args mesh : mesh
-        coor_dict = {0: "u", 1: "v", 2: "w"}
-        for i in args[0].cells.keys():
-            if args[0].cells[i].conj_id >= 0:
-                v__ = np.array([0.00, 0.00, 0.00], dtype = float)
-                v__[0] = args[0].cells[i].value["u"][-1]
-                v__[1] = args[0].cells[i].value["v"][-1]
-                v__[2] = args[0].cells[i].value["w"][-1]
-                v_val__ = np.sqrt(np.sum(np.array([map(lambda x: x^2, v__)])))
-                Sf_wall__ = -args[0].geoms("Sf", i, args[0].cells[i].conj_id, False)
-                v_parallel_ = np.cross(np.cross(v__, Sf_wall__), Sf_wall__)
-                v_parallel_val_ = np.sqrt(np.sum(np.array([map(lambda x: x^2, v_parallel_)])))
-                check = np.dot(v_val__, v_parallel_)
-                if check >= 0:
-                    theta = math.acos(np.dot(v__, v_parallel_) / (v_val__ * v_parallel_val_))
-                else:
-                    theta = math.acos(np.dot(v__, -v_parallel_) / (v_val__ * v_parallel_val_))
-                v_val__ = v_val__ * math.sin(theta)
-                Ret__ = args[0].cells[i].prop.rhs[-1] * pow(args[0].cells[i].value["k"][-1], 2) / \
-                        (args[0].cells[i].prop.miu[-1] * args[0].cells[i].value["e"][-1])
-                cmiu__ = 0.09 * math.exp(-3.4 / pow(1 + Ret__/50, 2))
-                gradCfluid__ = args[0].cells[i].grad[coor_dict[self.axis]][-1]
-                dperp__ = (np.sqrt(2 * args[0].cells[i].value[coor_dict[self.axis]][-1]) - 1) * \
-                            np.sqrt(gradCfluid__[0]**2 + gradCfluid__[1]**2 + gradCfluid__[2]**2)
-                dCplus__ = dperp__ * pow(cmiu__, 0.25) * np.sqrt(args[0].cells[i].value["k"][-1]) * \
-                            args[0].cells[i].prop.rhs[-1] / args[0].cells[i].prop.miu[-1]
-                dCplus__ = np.max(np.array([dCplus__, 11.06]))
-                miutau__ = v_val__ * 0.41 / (np.log(dCplus__) + 5.25)
-                dplusv__ = dperp__ * miutau__ * args[0].cells[i].prop.rhs[-1] / \
-                            args[0].cells[i].prop.miu[-1]
-                vplus__ = np.log(dplusv__) / 0.41 + 5.25
-                args[0].cells[i].value[coor_dict[self.axis]][-1] = vplus__
-        return
-    def itersolve(self, *args):
-        # GMRES
-        # args mesh : mesh, under_relax : double, tol : double, max_iter : int, time_step : float, user : user, current_time : int
-        # args mesh : mesh, user : user, what : str, time_step : int/double
+    def calc_wall(self, mesh_ : mesh, user_ : user, value_ : value):
+        coor_dict = dict({0: "u", 1 : "v", 2: "w"})
+        if "conj" in list(mesh_.templates.cc.keys()):
+            conj_ = mesh_.templates.iter("cc", "conj")
+            for it1, it2, it3 in zip(conj_[0], conj_[1], conj_[2]):
+                v_ = np.array([0, 0, 0], dtype = Decimal)
+                v_[0] = value_.cells("unit", "u")[it1][1]
+                v_[1] = value_.cells("unit", "v")[it1][1]
+                v_[2] = value_.cells("unit", "w")[it1][1]
+                v_val_ = Decimal(np.sqrt(np.sum(np.array([map(lambda x: x**2, v_)]))))
+                Sf_wall_ = Decimal(-1) * mesh_.geoms.Sf(False, it1, it3)
+                v_parallel_ = np.cross(np.cross(v_, Sf_wall_), Sf_wall_)
+                v_parallel_val_ = Decimal(np.sqrt(np.sum(np.array([map(lambda x: x**2), v_parallel_]))))
+                check = np.dot(v_val_, v_parallel_)
+                if check < 0:
+                    v_parallel_ = Decimal(-1) * v_parallel_
+                theta = math.acos(np.dot(v_, v_parallel_) / (v_val_ * v_parallel_val_))
+                v_val_ = v_val_ * math.sin(theta)
+                Ret_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1) * pow(value_.cells("unit", "k")[it1][1], 2) / \
+                       (value_.calc_prop(mesh_, user_, "miu", "cells", it1) * value_.cells("unit", "e")[it1][1])
+                cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_/50, 2))
+                gradCfluid_ = value_.cells("grad", coor_dict[self.axis])[it1][1]
+                dperp_ = (np.sqrt(2 * value_.cells("unit", coor_dict[self.axis]) - 1) * \
+                         np.sqrt(np.sum(np.array([map(lambda x:x**2, gradCfluid_)]))))
+                dCplus_ = dperp_ * pow(cmiu_, 0.25) * np.sqrt(value_.cells("unit", "k")[it1][1]) * \
+                          value_.calc_prop(mesh_, user_, "rho", "cells", it1) / value_.calc_prop(mesh_, user_, "miu", "cells", it1)
+                miutau_ = v_val_ * 0.41 / (np.log(dCplus_) + 5.25)
+                dplusv_ = dperp_ * miutau_ * value_.calc_prop(mesh_, user_, "rho", "cells", it1) / value_.calc_prop(mesh_, user_, "miu", "cells", it1)
+                vplus_ = np.log(dplusv_) / 0.41 + 5.25
+                value_.cells("unit", coor_dict[self.axis], it1, vplus_)   
+        else:
+            pass
+    def iter_solve(self, mesh_ : mesh, user_ : user, value_ : value, under_relax_, tol_, max_iter_, time_step_, current_time_):
         coor_dict = dict({0: "u", 1: "v", 2: "w"})
         what = coor_dict[self.axis]
-        self.calccoef(args[0], args[5], what, args[4])
-        lhs_transient, rhs_transient = super().calctransient(args[0], what, args[4], args[6])
-        for i in range(0, lhs_transient.shape[0]):
-            lhs_transient[i][i] = lhs_transient[i][i] / args[1]
-        A = lambda x: sparse.linalg.spsolve(lhs_transient, x)
-        under_relax_b = np.transpose(np.array([[lhs_transient[i][i] * args[0].cells[i].value[what][-1] * (1 - args[1]) \
-                        for i in range(0, lhs_transient.shape[0])]]))
-        b = self.rhs + under_relax_b
-        x, exitCode = sparse.linalg.gmres(A, b, tol = args[2], maxiter = args[3])
-        prev_x = np.array([args[0].cells[i].value[what]][-1] for i in args[0].cells.keys())
-        rmsr__ = super().calcrmsr(np.flatten(x), prev_x)
-        print("{} [{}]; status: {}, prev. value RMSR = {}".format(what, self.current_time, exitCode, rmsr__))
-        # update value and grad
-        self.updatevalue(args[0], what, np.flatten(x))
-        self.calcwall(args[0])
-        return rmsr__
+        self.calc_coef(mesh_, user_, value_)
+        lhs_transient_, rhs_transient_ = super().calc_transient(mesh_, user_, value_, what, time_step_, current_time_)
+        under_relax_b = deepcopy(rhs_transient_)
+        for it1 in range(0, lhs_transient_.shape[0]):
+            lhs_transient_[it1, it1] = lhs_transient_[it1, it1] / under_relax_
+        for it1 in range(0, rhs_transient_.shape[0]):
+            under_relax_b[it1, 0] = lhs_transient_[it1, it1] * value_.cells("unit", what)[it1][1] * (1 - under_relax_)
+        A = lambda x: sparse.linalg.spsolve(lhs_transient_, x)
+        b = rhs_transient_ + under_relax_b
+        x, exitCode = sparse.linalg.gmres(A, b, tol = tol_, maxiter = max_iter_)
+        value_.update_value(mesh_, "Pcor", np.transpose(x)[0])
+        self.calc_wall(mesh_, user_, value_)
+        rmsr_ = value_.calc_rmsr(what)
+        return rmsr_
 
 class turb_k(linear):
+    def __init__(self, mesh_ : mesh, axis_ : int):
+        # args mesh : mesh, axis : int
+        super().__init__(mesh_, what = ["fluid"])
+        self.__axis = axis_
+    @property
+    def axis(self):
+        return self.__axis
+    
+    def calc_coef(self, mesh_ : mesh, user_ : user, value_ : value):
+        # fluid only
+        prev_row = 0
+        aC__ = Decimal(0)
+        bC__ = Decimal(0)
+        coor_dict = {0: "u", 1: "v", 2: "w"}
+        axes = np.delete(np.array([0, 1, 2]), self.axis)
+        cc_ = mesh_.templates.iter("cc", "fluid"); cc_ = sorted(zip(cc_[0], cc_[1], cc_[2]), key = lambda x: x[0])
+        for it1, it2, it3 in cc_:
+            rho_f_ = value_.calc_prop(mesh_, user_, "rho", "faces", it3)
+            miu_f_ = value_.calc_prop(mesh_, user_, "miu", "faces", it3)
+            Sf_ = mesh_.geoms.Sf(False, it1, it3)
+            dCf_ = mesh_.geoms.dCf(False, it1, it3)
+            eCF_ = mesh_.geoms.eCF(False, it1, it2)
+            dCF_ = mesh_.geoms.dCF(True, it1, it2)
+            v_ = np.array([0, 0, 0], dtype = Decimal)
+            v_[self.axis] = value_.faces("unit", coor_dict[self.axis])[it3][1]
+            v_[axes[0]] = value_.faces("unit", coor_dict[axes[0]])[it3][1]
+            v_[axes[1]] = value_.faces("unit", coor_dict[axes[1]])[it3][1]
+            Ret_ = rho_f_ * pow(value_.faces("unit", "k")[it3][1], 2) / (miu_f_ * value_.faces("unit", "e")[it3][1])
+            cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_ / 50, 2))
+            St_tensor_ = np.array([[value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1], value_.faces("unit", "w")[it3][1]]])
+            St_tensor_ = (St_tensor_ + np.transpose(St_tensor_))
+            St_ = np.sqrt(np.dot(St_tensor_, St_tensor_))
+            ts_ = np.min(np.array([value_.faces("unit", "k")[it3][1] / value_.faces("unit", "e")[it3][1], value_.calc_prop(mesh_, user_, "alpha", it3) / (pow(6, 0.5) * cmiu_ * St_)]))
+            miut_ = rho_f_ * cmiu_ * value_.faces("unit", "k")[it3][1] * ts_
+            graditr_ = value_.linear_itr("grad", mesh_, [it1, it2, it3], coor_dict[self.axis])
+            if prev_row == it1:
+                aC_ += (1 - np.dot(eCF_, eCF_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
+                aC_ += (np.dot(eCF_, Sf_) / dCF_) * miu_f_ + miut_
+                bC += np.dot(np.dot(np.dot(graditr_, eCF_) * eCF_ - (value_.cells("grad", coor_dict[self.axis])[it1][1] + graditr_), dCf_) / 2, dCf_) * rho_f_ * np.dot(v_, Sf_)
+                bC += np.dot(graditr_ - (np.dot(graditr_, eCF_) * eCF_), Sf_) * miu_f_ + miut_
+                lhs_value = (np.dot(eCF_, dCf_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
+                lhs_value_body = (-1) * (np.dot(eCF_, Sf_) / dCF_) * (miu_f_ + miut_)
+                self.lhs([it1, it2], lhs_value); self.lhs([it1, it2], lhs_value, add = True)
+                prev_row == it1
+            else:
+                if self.axis == 1:
+                    bC_ += value_.calc_prop(mesh_, user_, "rho", "cells", it1) * 9.81 * mesh_.cells[it1].volume
+                self.lhs([it1, it1], aC_); self.rhs([it1, 0], bC_)
+                aC_ = Decimal(0); bC_ = Decimal(0)
+                aC_ += (1 - np.dot(eCF_, eCF_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
+                aC_ += (np.dot(eCF_, Sf_) / dCF_) * miu_f_ + miut_
+                bC += np.dot(np.dot(np.dot(graditr_, eCF_) * eCF_ - (value_.cells("grad", coor_dict[self.axis])[it1][1] + graditr_), dCf_) / 2, dCf_) * rho_f_ * np.dot(v_, Sf_)
+                bC += np.dot(graditr_ - (np.dot(graditr_, eCF_) * eCF_), Sf_) * miu_f_ + miut_
+                lhs_value = (np.dot(eCF_, dCf_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
+                lhs_value_body = (-1) * (np.dot(eCF_, Sf_) / dCF_) * (miu_f_ + miut_)
+                self.lhs([it1, it2], lhs_value); self.lhs([it1, it2], lhs_value, add = True)
+                prev_row == it1
+        if self.axis == 1:
+            bC_ += value_.calc_prop(mesh_, user_, "rho", "cells", it1) * 9.81 * mesh_.cells[it1].volume
+        self.lhs([it1, it1], aC_); self.rhs([it1, 0], bC_)
+        fc_ = mesh_.templates.iter("fc", "fluid")
+        for it1, it2, it3 in zip(fc_[0], fc_[1], fc_[2]):
+            v_ = np.array([0, 0, 0], dtype = Decimal)
+            v_[self.axis] = value_.faces("unit", coor_dict[self.axis])[it2][1]
+            v_[axes[0]] = value_.faces("unit", coor_dict[axes[0]])[it2][1]
+            v_[axes[1]] = value_.faces("unit", coor_dict[axes[1]])[it2][1]
+            self.calc_bound(mesh_, user_, value_, v_, it1, it2)            
+    def calc_bound(self, mesh_ : mesh, user_ : user, value_ : value, v_, row : int, col : int):
+        coor_dict = dict({0: "u", 1: "v", 2: "w"})
+        axes = np.delete(np.array([0,1,2]), self.axis)
+        if "noslip" in mesh_.faces[col].boundary():
+            rho_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", row)
+            miu_f_ = value_.calc_prop(mesh_, user_, "miu", "faces", col)
+            miu_C_ = value_.calc_prop(mesh_, user_, "miu", "cells", row)
+            cgrad_this = value_.cells("grad", coor_dict[self.axis])[row][1]
+            cunit_this = value_.cells("unit", coor_dict[self.axis])[row][1]
+            cunit_axes0 = value_.cells("unit", coor_dict[axes[0]])[row][1]
+            cunit_axes1 = value_.cells("unit", coor_dict[axes[1]])[row][1]
+            funit_this = value_.faces("unit", coor_dict[self.axis])[col][1]
+            funit_axes0 = value_.faces("unit", coor_dict[axes[0]])[col][1]
+            funit_axes1 = value_.faces("unit", coor_dict[axes[1]])[col][1]
+            dperp_ = pow(linalg.norm(cgrad_this)**2 + 2 * cgrad_this, 0.5) - linalg.norm(cgrad_this)
+            Sf_ = mesh_.geoms.Sf(False, row, col)
+            eCf_ = mesh_.geoms.eCf(False, row, col)
+            lhs_value = miu_f_ * Sf_[self.axis] * (1 - eCf_[self.axis]**2) / dperp_
+            rhs_value = (miu_f_ * Sf_[self.axis] / dperp_) * ((funit_this * (1 - eCf_[self.axis]**2)) + \
+                        ((cunit_axes0 - funit_axes0) * eCf_[self.axis] * eCf_[axes[0]]) + \
+                        ((cunit_axes1 - funit_axes1) * eCf_[self.axis] * eCf_[axes[1]])) - \
+                        value_.faces("unit", "P")[col][1] * Sf_[self.axis]
+            self.lhs([row, row], lhs_value, add = True)
+            area_ = Decimal(np.sum(np.array([mesh_.faces[it1].area() for it1 in mesh_.cells[row].faces()])))
+            Re_ = rho_C_ * np.sqrt(np.sum(np.array([map(lambda x: x**2, v_)]))) * mesh_.cells[row].volume() / (area_ * miu_C_)
+            tau_ = v_[self.axis] * 8 * rho_C_ / Re_
+            rhs_value = Decimal(-1) * tau_ / (rho_C_ * 2 * mesh_.cells[row].volume() / mesh_.faces[col].area())
+            self.rhs([row, 0], rhs_value, add = True)
+        elif "inlet" in mesh_.faces[col].boundary():
+            Sf_ = mesh_.geoms.Sf(False, row, col)
+            eCf_ = mesh_.geoms.eCf(False, row, col)
+            dCf_ = mesh_.geoms.dCf(False, row, col)
+            grad_vin_v0_ = value_.cells("grad", coor_dict[self.axis])[row][1] - \
+                           (np.dot(value_.cells("grad", coor_dict[self.axis])[row][1], eCf_) * eCf_)
+            grad_vin_v1_ = value_.cells("grad", coor_dict[axes[0]])[row][1] - \
+                           (np.dot(value_.cells("grad", coor_dict[self.axis])[row][1], eCf_) * eCf_)
+            grad_vin_v2_ = value_.cells("grad", coor_dict[axes[1]])[row][1] - \
+                           (np.dot(value_.cells("grad", coor_dict[self.axis])[row][1], eCf_) * eCf_)
+            vin_v0_ = value_.cells("unit", coor_dict[self.axis])[row][1] + np.dot(grad_vin_v0_, dCf_)
+            vin_v1_ = value_.cells("unit", coor_dict[axes[0]])[row][1] + np.dot(grad_vin_v1_, dCf_)
+            vin_v2_ = value_.cells("unit", coor_dict[axes[1]])[row][1] + np.dot(grad_vin_v2_, dCf_)
+            vin_ = np.array([0, 0, 0], dtype = Decimal)
+            vin_[self.axis] = vin_v0_; vin_[axes[0]] = vin_v1_; vin_[axes[1]] = vin_v2_
+            lhs_value = value_.calc_prop(mesh_, user_, "rho", "faces", col) * np.dot(vin_, Sf_)
+            rhs_value = Decimal(-1) * (value_.calc_prop(mesh_, user_, "rho", "faces", col) * np.dot(vin_, Sf_) * \
+                                      np.dot(grad_vin_v0_, dCf_) + user_.constants.loc[0, "Pamb"] * Sf_[self.axis])
+            self.lhs([row, row], lhs_value, add = True)
+            self.rhs([row, 0], rhs_value, add = True)
+        elif "outlet" in mesh_.faces[col].boundary():
+            Sf_ = mesh_.geoms.Sf(False, row, col)
+            eCf_ = mesh_.geoms.eCf(False, row, col)
+            dCf_ = mesh_.geoms.dCf(False, row, col)
+            grad_vout_v0_ = value_.cells("grad", coor_dict[self.axis])[row][1] - \
+                           (np.dot(value_.cells("grad", coor_dict[self.axis])[row][1], eCf_) * eCf_)
+            grad_vout_v1_ = value_.cells("grad", coor_dict[axes[0]])[row][1] - \
+                           (np.dot(value_.cells("grad", coor_dict[self.axis])[row][1], eCf_) * eCf_)
+            grad_vout_v2_ = value_.cells("grad", coor_dict[axes[1]])[row][1] - \
+                           (np.dot(value_.cells("grad", coor_dict[self.axis])[row][1], eCf_) * eCf_)
+            vout_v0_ = value_.cells("unit", coor_dict[self.axis])[row][1] + np.dot(grad_vout_v0_, dCf_)
+            vout_v1_ = value_.cells("unit", coor_dict[axes[0]])[row][1] + np.dot(grad_vout_v1_, dCf_)
+            vout_v2_ = value_.cells("unit", coor_dict[axes[1]])[row][1] + np.dot(grad_vout_v2_, dCf_)
+            vout_ = np.array([0, 0, 0], dtype = Decimal)
+            vout_[self.axis] = vout_v0_; vout_[axes[0]] = vout_v1_; vout_[axes[1]] = vout_v2_
+            pout_ = value_.cells("unit", "P")[row][1] + np.dot(value_.cells("grad", "P")[row][1], dCf_)
+            lhs_value = value_.calc_prop(mesh_, user_, "rho", "faces", col) * np.dot(vin_, Sf_)
+            rhs_value = Decimal(-1) * (value_.calc_prop(mesh_, user_, "rho", "faces", col) * np.dot(vin_, Sf_) * \
+                                      np.dot(grad_vin_v0_, dCf_) + pout_ * Sf_[self.axis])
+            self.lhs([row, row], lhs_value, add = True)
+            self.rhs([row, 0], rhs_value, add = True)
+        else:
+            pass
+    def calc_wall(self, mesh_ : mesh, user_ : user, value_ : value):
+        coor_dict = dict({0: "u", 1 : "v", 2: "w"})
+        if "conj" in list(mesh_.templates.cc.keys()):
+            conj_ = mesh_.templates.iter("cc", "conj")
+            for it1, it2, it3 in zip(conj_[0], conj_[1], conj_[2]):
+                v_ = np.array([0, 0, 0], dtype = Decimal)
+                v_[0] = value_.cells("unit", "u")[it1][1]
+                v_[1] = value_.cells("unit", "v")[it1][1]
+                v_[2] = value_.cells("unit", "w")[it1][1]
+                v_val_ = Decimal(np.sqrt(np.sum(np.array([map(lambda x: x**2, v_)]))))
+                Sf_wall_ = Decimal(-1) * mesh_.geoms.Sf(False, it1, it3)
+                v_parallel_ = np.cross(np.cross(v_, Sf_wall_), Sf_wall_)
+                v_parallel_val_ = Decimal(np.sqrt(np.sum(np.array([map(lambda x: x**2), v_parallel_]))))
+                check = np.dot(v_val_, v_parallel_)
+                if check < 0:
+                    v_parallel_ = Decimal(-1) * v_parallel_
+                theta = math.acos(np.dot(v_, v_parallel_) / (v_val_ * v_parallel_val_))
+                v_val_ = v_val_ * math.sin(theta)
+                Ret_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1) * pow(value_.cells("unit", "k")[it1][1], 2) / \
+                       (value_.calc_prop(mesh_, user_, "miu", "cells", it1) * value_.cells("unit", "e")[it1][1])
+                cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_/50, 2))
+                gradCfluid_ = value_.cells("grad", coor_dict[self.axis])[it1][1]
+                dperp_ = (np.sqrt(2 * value_.cells("unit", coor_dict[self.axis]) - 1) * \
+                         np.sqrt(np.sum(np.array([map(lambda x:x**2, gradCfluid_)]))))
+                dCplus_ = dperp_ * pow(cmiu_, 0.25) * np.sqrt(value_.cells("unit", "k")[it1][1]) * \
+                          value_.calc_prop(mesh_, user_, "rho", "cells", it1) / value_.calc_prop(mesh_, user_, "miu", "cells", it1)
+                miutau_ = v_val_ * 0.41 / (np.log(dCplus_) + 5.25)
+                dplusv_ = dperp_ * miutau_ * value_.calc_prop(mesh_, user_, "rho", "cells", it1) / value_.calc_prop(mesh_, user_, "miu", "cells", it1)
+                vplus_ = np.log(dplusv_) / 0.41 + 5.25
+                value_.cells("unit", coor_dict[self.axis], it1, vplus_)   
+        else:
+            pass
+    def iter_solve(self, mesh_ : mesh, user_ : user, value_ : value, under_relax_, tol_, max_iter_, time_step_, current_time_):
+        coor_dict = dict({0: "u", 1: "v", 2: "w"})
+        what = coor_dict[self.axis]
+        self.calc_coef(mesh_, user_, value_)
+        lhs_transient_, rhs_transient_ = super().calc_transient(mesh_, user_, value_, what, time_step_, current_time_)
+        under_relax_b = deepcopy(rhs_transient_)
+        for it1 in range(0, lhs_transient_.shape[0]):
+            lhs_transient_[it1, it1] = lhs_transient_[it1, it1] / under_relax_
+        for it1 in range(0, rhs_transient_.shape[0]):
+            under_relax_b[it1, 0] = lhs_transient_[it1, it1] * value_.cells("unit", what)[it1][1] * (1 - under_relax_)
+        A = lambda x: sparse.linalg.spsolve(lhs_transient_, x)
+        b = rhs_transient_ + under_relax_b
+        x, exitCode = sparse.linalg.gmres(A, b, tol = tol_, maxiter = max_iter_)
+        value_.update_value(mesh_, "Pcor", np.transpose(x)[0])
+        self.calc_wall(mesh_, user_, value_)
+        rmsr_ = value_.calc_rmsr(what)
+        return rmsr_
+
+
+    
+
     def __init__(self, *args):
-        super().__init__(args[0])
+        super().__init__(mesh_)
     def calccoef(self, *args):
         # args mesh : mesh, user : user, what : str, time_step : int/double
         # fluid only
         prev_row = 0
         aC__ = 0.00
         bC__ = 0.00
-        neigh__ = args[0].templates.neighbor["fluid"].tocoo()
+        neigh__ = mesh_.templates.neighbor["fluid"].tocoo()
         for i, j, k in zip(neigh__.row, neigh__.col, neigh__.data):
-            Sf__  = args[0].geoms("Sf", i, k, False)
-            dCf__ = args[0].geoms("dCf", i, k, False)
-            eCF__ = args[0].geoms("eCF", i, j, False)
-            dCF__ = args[0].geoms("dCF", i, j, True)
+            Sf__  = mesh_.geoms("Sf", i, k, False)
+            dCf__ = mesh_.geoms("dCf", i, k, False)
+            eCF__ = mesh_.geoms("eCF", i, j, False)
+            dCF__ = mesh_.geoms("dCF", i, j, True)
             v__ = np.array([0.00, 0.00, 0.00], dtype = float)
-            v__[0] = args[0].faces[k].value["u"][-1]
-            v__[1] = args[0].faces[k].value["v"][-1]
-            v__[2] = args[0].faces[k].value["w"][-1]
-            Ret__ = args[0].faces[k].prop.rhs[-1] * pow(args[0].faces[k].value["k"][-1], 2) / \
-                    (args[0].faces[k].prop.miu[-1] * args[0].faces[k].value["e"][-1])
+            v__[0] = mesh_.faces[k].value["u"][-1]
+            v__[1] = mesh_.faces[k].value["v"][-1]
+            v__[2] = mesh_.faces[k].value["w"][-1]
+            Ret__ = mesh_.faces[k].prop.rhs[-1] * pow(mesh_.faces[k].value["k"][-1], 2) / \
+                    (mesh_.faces[k].prop.miu[-1] * mesh_.faces[k].value["e"][-1])
             cmiu__ = 0.09 * math.exp(-3.4 / pow(1 + Ret__/50, 2))
-            St_tensor__ = np.array([args[0].faces[k].grad["u"][-1], args[0].faces[k].grad["v"][-1], \
-                          args[0].faces[k].grad["w"][-1]])
+            St_tensor__ = np.array([mesh_.faces[k].grad["u"][-1], mesh_.faces[k].grad["v"][-1], \
+                          mesh_.faces[k].grad["w"][-1]])
             St_tensor__ = (St_tensor__ + np.transpose(St_tensor__)) * 0.5
             St__ = np.sqrt(St_tensor__.dot(St_tensor__))
-            ts__ = np.min(np.array([args[0].faces[k].value["k"][-1] / args[0].faces[k].value["e"][-1], \
-                   args[0].faces[k].prop.alpha[-1] / (np.sqrt(6) * cmiu__ * St__)]))
-            miut__ = args[0].faces[k].prop.rhs[-1] * cmiu__ * args[0].faces[k].value["k"][-1] * ts__
-            graditr__  = super().linearitr(args[0], ["grad", "k"], i, j, k)
+            ts__ = np.min(np.array([mesh_.faces[k].value["k"][-1] / mesh_.faces[k].value["e"][-1], \
+                   mesh_.faces[k].prop.alpha[-1] / (np.sqrt(6) * cmiu__ * St__)]))
+            miut__ = mesh_.faces[k].prop.rhs[-1] * cmiu__ * mesh_.faces[k].value["k"][-1] * ts__
+            graditr__  = super().linearitr(mesh_, ["grad", "k"], i, j, k)
             if prev_row == i:
-                aC__ += (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] \
+                aC__ += (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * mesh_.faces[k].prop.rhs[-1] \
                         * np.dot(v__, Sf__)
-                aC__ += (np.dot(eCF__, Sf__) / dCF__) * (args[0].faces[k].prop.miu[-1] + miut__)
+                aC__ += (np.dot(eCF__, Sf__) / dCF__) * (mesh_.faces[k].prop.miu[-1] + miut__)
                 bC__ += np.dot(np.dot(np.dot(graditr__, eCF__) * eCF__ - \
-                        (args[0].cells[i].grad["k"][-1] +  graditr__), dCf__) / 2, dCf__) * \
-                        args[0].faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
-                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) * (args[0].faces[k].prop.miu[-1] \
+                        (mesh_.cells[i].grad["k"][-1] +  graditr__), dCf__) / 2, dCf__) * \
+                        mesh_.faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
+                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) * (mesh_.faces[k].prop.miu[-1] \
                         + miut__)
-                self.lhs[i][j] = (np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] * \
+                self.lhs[i][j] = (np.dot(eCF__, dCf__) / (2 * dCF__)) * mesh_.faces[k].prop.rhs[-1] * \
                                      np.dot(v__, Sf__)
-                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * (args[0].faces[k].prop.miu[-1] + miut__)
+                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * (mesh_.faces[k].prop.miu[-1] + miut__)
                 prev_row = i
             else:
-                gradC_u__ = args[0].cells[prev_row].grad["u"][-1]
-                gradC_v__ = args[0].cells[prev_row].grad["v"][-1]
-                gradC_w__ = args[0].cells[prev_row].grad["w"][-1]
+                gradC_u__ = mesh_.cells[prev_row].grad["u"][-1]
+                gradC_v__ = mesh_.cells[prev_row].grad["v"][-1]
+                gradC_w__ = mesh_.cells[prev_row].grad["w"][-1]
                 phi_v__ = 2 * ( gradC_u__[0]**2  + gradC_v__[1]**2 + gradC_w__[2]**2 ) + pow(gradC_u__[1] + gradC_v__[0], 2) \
                           + pow(gradC_u__[2] + gradC_w__[0], 2) + pow(gradC_v__[2] + gradC_w__[1], 2)
-                Ret_C_ = args[0].cells[prev_row].prop.rhs[-1] * pow(args[0].cells[prev_row].value["k"][-1], 2) / \
-                        (args[0].cells[prev_row].prop.miu[-1] * args[0].cells[prev_row].value["e"][-1])
+                Ret_C_ = mesh_.cells[prev_row].prop.rhs[-1] * pow(mesh_.cells[prev_row].value["k"][-1], 2) / \
+                        (mesh_.cells[prev_row].prop.miu[-1] * mesh_.cells[prev_row].value["e"][-1])
                 cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
-                St_tensor_C_ = np.array([args[0].cells[prev_row].grad["u"][-1], args[0].cells[prev_row].grad["v"][-1], \
-                            args[0].cells[prev_row].grad["w"][-1]])
+                St_tensor_C_ = np.array([mesh_.cells[prev_row].grad["u"][-1], mesh_.cells[prev_row].grad["v"][-1], \
+                            mesh_.cells[prev_row].grad["w"][-1]])
                 St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5
                 St_C_ = np.sqrt(St_tensor_C_.dot(St_tensor_C_))
-                ts_C_ = np.min(np.array([args[0].cells[prev_row].value["k"][-1] / args[0].cells[prev_row].value["e"][-1], \
-                    args[0].cells[prev_row].prop.alpha[-1] / (np.sqrt(6) * cmiu_C_ * St_C_)]))
-                miut_C_ = args[0].cells[prev_row].prop.rhs[-1] * cmiu_C_ * args[0].cells[prev_row].value["k"][-1] * ts_C_
-                bC__ += (miut_C_ * phi_v__ - args[0].cells[prev_row].prop.rhs[-1] * args[0].cells[prev_row].value["e"][-1]) \
-                        * args[0].cells[prev_row].volume
+                ts_C_ = np.min(np.array([mesh_.cells[prev_row].value["k"][-1] / mesh_.cells[prev_row].value["e"][-1], \
+                    mesh_.cells[prev_row].prop.alpha[-1] / (np.sqrt(6) * cmiu_C_ * St_C_)]))
+                miut_C_ = mesh_.cells[prev_row].prop.rhs[-1] * cmiu_C_ * mesh_.cells[prev_row].value["k"][-1] * ts_C_
+                bC__ += (miut_C_ * phi_v__ - mesh_.cells[prev_row].prop.rhs[-1] * mesh_.cells[prev_row].value["e"][-1]) \
+                        * mesh_.cells[prev_row].volume
                 self.lhs[prev_row][prev_row] = aC__
                 self.rhs[prev_row][0] = bC__
                 aC__ = 0.00
                 bC__ = 0.00
-                aC__ += (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] \
+                aC__ += (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * mesh_.faces[k].prop.rhs[-1] \
                         * np.dot(v__, Sf__)
-                aC__ += (np.dot(eCF__, Sf__) / dCF__) * (args[0].faces[k].prop.miu[-1] + miut__)
+                aC__ += (np.dot(eCF__, Sf__) / dCF__) * (mesh_.faces[k].prop.miu[-1] + miut__)
                 bC__ += np.dot(np.dot(np.dot(graditr__, eCF__) * eCF__ - \
-                        (args[0].cells[i].grad["k"][-1] +  graditr__), dCf__) / 2, dCf__) * \
-                        args[0].faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
-                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) * (args[0].faces[k].prop.miu[-1] \
+                        (mesh_.cells[i].grad["k"][-1] +  graditr__), dCf__) / 2, dCf__) * \
+                        mesh_.faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
+                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) * (mesh_.faces[k].prop.miu[-1] \
                         + miut__)
-                self.lhs[i][j] = (np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] * \
+                self.lhs[i][j] = (np.dot(eCF__, dCf__) / (2 * dCF__)) * mesh_.faces[k].prop.rhs[-1] * \
                                      np.dot(v__, Sf__)
-                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * (args[0].faces[k].prop.miu[-1] + miut__)
+                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * (mesh_.faces[k].prop.miu[-1] + miut__)
                 prev_row = i
-        gradC_u__ = args[0].cells[prev_row].grad["u"][-1]
-        gradC_v__ = args[0].cells[prev_row].grad["v"][-1]
-        gradC_w__ = args[0].cells[prev_row].grad["w"][-1]
+        gradC_u__ = mesh_.cells[prev_row].grad["u"][-1]
+        gradC_v__ = mesh_.cells[prev_row].grad["v"][-1]
+        gradC_w__ = mesh_.cells[prev_row].grad["w"][-1]
         phi_v__ = 2 * ( gradC_u__[0]**2  + gradC_v__[1]**2 + gradC_w__[2]**2 ) + pow(gradC_u__[1] + gradC_v__[0], 2) \
                     + pow(gradC_u__[2] + gradC_w__[0], 2) + pow(gradC_v__[2] + gradC_w__[1], 2)
-        Ret_C_ = args[0].cells[prev_row].prop.rhs[-1] * pow(args[0].cells[prev_row].value["k"][-1], 2) / \
-                (args[0].cells[prev_row].prop.miu[-1] * args[0].cells[prev_row].value["e"][-1])
+        Ret_C_ = mesh_.cells[prev_row].prop.rhs[-1] * pow(mesh_.cells[prev_row].value["k"][-1], 2) / \
+                (mesh_.cells[prev_row].prop.miu[-1] * mesh_.cells[prev_row].value["e"][-1])
         cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
-        St_tensor_C_ = np.array([args[0].cells[prev_row].grad["u"][-1], args[0].cells[prev_row].grad["v"][-1], \
-                    args[0].cells[prev_row].grad["w"][-1]])
+        St_tensor_C_ = np.array([mesh_.cells[prev_row].grad["u"][-1], mesh_.cells[prev_row].grad["v"][-1], \
+                    mesh_.cells[prev_row].grad["w"][-1]])
         St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5
         St_C_ = np.sqrt(St_tensor_C_.dot(St_tensor_C_))
-        ts_C_ = np.min(np.array([args[0].cells[prev_row].value["k"][-1] / args[0].cells[prev_row].value["e"][-1], \
-            args[0].cells[prev_row].prop.alpha[-1] / (np.sqrt(6) * cmiu_C_ * St_C_)]))
-        miut_C_ = args[0].cells[prev_row].prop.rhs[-1] * cmiu_C_ * args[0].cells[prev_row].value["k"][-1] * ts_C_
-        bC__ += (miut_C_ * phi_v__ - args[0].cells[prev_row].prop.rhs[-1] * args[0].cells[prev_row].value["e"][-1]) \
-                * args[0].cells[prev_row].volume
+        ts_C_ = np.min(np.array([mesh_.cells[prev_row].value["k"][-1] / mesh_.cells[prev_row].value["e"][-1], \
+            mesh_.cells[prev_row].prop.alpha[-1] / (np.sqrt(6) * cmiu_C_ * St_C_)]))
+        miut_C_ = mesh_.cells[prev_row].prop.rhs[-1] * cmiu_C_ * mesh_.cells[prev_row].value["k"][-1] * ts_C_
+        bC__ += (miut_C_ * phi_v__ - mesh_.cells[prev_row].prop.rhs[-1] * mesh_.cells[prev_row].value["e"][-1]) \
+                * mesh_.cells[prev_row].volume
         self.lhs[prev_row][prev_row] = aC__
         self.rhs[prev_row][0] = bC__
-        bound__ = args[0].templates.boundary["fluid"].tocoo()
+        bound__ = mesh_.templates.boundary["fluid"].tocoo()
         for i, j, k in zip(bound__.row, bound__.col, bound__.data):
             v__ = np.array([0.00, 0.00, 0.00], dtype = float)
-            v__[0] = args[0].faces[k].value["u"][-1]
-            v__[1] = args[0].faces[k].value["v"][-1]
-            v__[2] = args[0].faces[k].value["w"][-1]
-            for l in args[0].faces[j].bound:
-                self.calcbound(args[0], l, i, j, v__, args[1])
+            v__[0] = mesh_.faces[k].value["u"][-1]
+            v__[1] = mesh_.faces[k].value["v"][-1]
+            v__[2] = mesh_.faces[k].value["w"][-1]
+            for l in mesh_.faces[j].bound:
+                self.calcbound(mesh_, l, i, j, v__, args[1])
         return
     def calcbound(self, *args):
         # void
         # args mesh : mesh, bound name : str, cell id : int, face id : int, v__ : np.array([]), user : user
         if "inlet" in args[1]:
             # specified value; zero gradient at inlet
-            Sf__ = args[0].geoms("Sf", args[2], args[3], False)
-            eCf__ = args[0].geoms("eCf", args[2], args[3], False)
-            dCf__ = args[0].geoms("dCf", args[2], args[3], False)
-            grad_vin_v0_ = np.dot(args[0].cells[args[2]].grad["u"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["u"][-1], eCf__) * eCf__))
-            grad_vin_v1_ = np.dot(args[0].cells[args[2]].grad["v"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["v"][-1], eCf__) * eCf__))
-            grad_vin_v2_ = np.dot(args[0].cells[args[2]].grad["w"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["w"][-1], eCf__) * eCf__))
-            vin_v0_ = args[0].cells[args[2]].value["u"][-1] + np.dot(grad_vin_v0_, dCf__)
-            vin_v1_ = args[0].cells[args[2]].value["v"][-1] + np.dot(grad_vin_v1_, dCf__)
-            vin_v2_ = args[0].cells[args[2]].value["w"][-1] + np.dot(grad_vin_v2_, dCf__)
+            Sf__ = mesh_.geoms("Sf", args[2], args[3], False)
+            eCf__ = mesh_.geoms("eCf", args[2], args[3], False)
+            dCf__ = mesh_.geoms("dCf", args[2], args[3], False)
+            grad_vin_v0_ = np.dot(mesh_.cells[args[2]].grad["u"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["u"][-1], eCf__) * eCf__))
+            grad_vin_v1_ = np.dot(mesh_.cells[args[2]].grad["v"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["v"][-1], eCf__) * eCf__))
+            grad_vin_v2_ = np.dot(mesh_.cells[args[2]].grad["w"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["w"][-1], eCf__) * eCf__))
+            vin_v0_ = mesh_.cells[args[2]].value["u"][-1] + np.dot(grad_vin_v0_, dCf__)
+            vin_v1_ = mesh_.cells[args[2]].value["v"][-1] + np.dot(grad_vin_v1_, dCf__)
+            vin_v2_ = mesh_.cells[args[2]].value["w"][-1] + np.dot(grad_vin_v2_, dCf__)
             vin__ = np.array([vin_v0_, vin_v1_, vin_v2_], dtype = float)
-            grad_kin_ = np.dot(args[0].cells[args[2]].grad["k"][-1] - \
-                         (np.dot(args[0].cells[args[2]].grad["k"][-1], eCf__) * eCf__))
+            grad_kin_ = np.dot(mesh_.cells[args[2]].grad["k"][-1] - \
+                         (np.dot(mesh_.cells[args[2]].grad["k"][-1], eCf__) * eCf__))
             kin_ = 0.5 * np.dot(vin__, vin__) * 0.01**2
-            self.rhs[args[2]][0] += -args[0].faces[args[3]].prop.rhs[-1] * np.dot(vin__, Sf__) * kin_
-            self.rhs[args[2]][0] += -args[0].faces[args[3]].prop.rhs[-1] * np.dot(vin__, Sf__) * np.dot(grad_kin_, dCf__)
+            self.rhs[args[2]][0] += -mesh_.faces[args[3]].prop.rhs[-1] * np.dot(vin__, Sf__) * kin_
+            self.rhs[args[2]][0] += -mesh_.faces[args[3]].prop.rhs[-1] * np.dot(vin__, Sf__) * np.dot(grad_kin_, dCf__)
         elif "outlet" in args[1]:
             # fully developed flow; zero gradient at outlet
-            Sf__ = args[0].geoms("Sf", args[2], args[3], False)
-            eCf__ = args[0].geoms("eCf", args[2], args[3], False)
-            dCf__ = args[0].geoms("dCf", args[2], args[3], False)
-            grad_vout_v0_ = np.dot(args[0].cells[args[2]].grad["u"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["u"][-1], eCf__) * eCf__))
-            grad_vout_v1_ = np.dot(args[0].cells[args[2]].grad["v"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["v"][-1], eCf__) * eCf__))
-            grad_vout_v2_ = np.dot(args[0].cells[args[2]].grad["w"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["w"][-1], eCf__) * eCf__))
-            vout_v0_ = args[0].cells[args[2]].value["u"][-1] + np.dot(grad_vout_v0_, dCf__)
-            vout_v1_ = args[0].cells[args[2]].value["v"][-1] + np.dot(grad_vout_v1_, dCf__)
-            vout_v2_ = args[0].cells[args[2]].value["w"][-1] + np.dot(grad_vout_v2_, dCf__)
+            Sf__ = mesh_.geoms("Sf", args[2], args[3], False)
+            eCf__ = mesh_.geoms("eCf", args[2], args[3], False)
+            dCf__ = mesh_.geoms("dCf", args[2], args[3], False)
+            grad_vout_v0_ = np.dot(mesh_.cells[args[2]].grad["u"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["u"][-1], eCf__) * eCf__))
+            grad_vout_v1_ = np.dot(mesh_.cells[args[2]].grad["v"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["v"][-1], eCf__) * eCf__))
+            grad_vout_v2_ = np.dot(mesh_.cells[args[2]].grad["w"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["w"][-1], eCf__) * eCf__))
+            vout_v0_ = mesh_.cells[args[2]].value["u"][-1] + np.dot(grad_vout_v0_, dCf__)
+            vout_v1_ = mesh_.cells[args[2]].value["v"][-1] + np.dot(grad_vout_v1_, dCf__)
+            vout_v2_ = mesh_.cells[args[2]].value["w"][-1] + np.dot(grad_vout_v2_, dCf__)
             vout__ = np.array([vout_v0_, vout_v1_, vout_v2_], dtype = float)
-            grad_kout_ = np.dot(args[0].cells[args[2]].grad["k"][-1] - \
-                         (np.dot(args[0].cells[args[2]].grad["k"][-1], eCf__) * eCf__))
-            self.lhs[args[2]][args[2]] += args[0].faces[args[3]].prop.rhs[-1] * np.dot(vout__, Sf__)
-            self.rhs[args[2]][0] += -args[0].faces[args[3]].prop.rhs[-1] * np.dot(vout__, Sf__) * np.dot(grad_kout_, dCf__)
+            grad_kout_ = np.dot(mesh_.cells[args[2]].grad["k"][-1] - \
+                         (np.dot(mesh_.cells[args[2]].grad["k"][-1], eCf__) * eCf__))
+            self.lhs[args[2]][args[2]] += mesh_.faces[args[3]].prop.rhs[-1] * np.dot(vout__, Sf__)
+            self.rhs[args[2]][0] += -mesh_.faces[args[3]].prop.rhs[-1] * np.dot(vout__, Sf__) * np.dot(grad_kout_, dCf__)
         else:
             pass
         return
     def calcwall(self, *args):
         # args mesh : mesh
-        for i in args[0].cells.keys():
-            if args[0].cells[i].conj_id >= 0:
-                Ret__ = args[0].cells[i].prop.rhs[-1] * pow(args[0].cells[i].value["k"][-1], 2) / \
-                        (args[0].cells[i].prop.miu[-1] * args[0].cells[i].value["e"][-1])
+        for i in mesh_.cells.keys():
+            if mesh_.cells[i].conj_id >= 0:
+                Ret__ = mesh_.cells[i].prop.rhs[-1] * pow(mesh_.cells[i].value["k"][-1], 2) / \
+                        (mesh_.cells[i].prop.miu[-1] * mesh_.cells[i].value["e"][-1])
                 cmiu__ = 0.09 * math.exp(-3.4 / pow(1 + Ret__/50, 2))
-                args[0].cells[i].value["k"][-1] = 1 / np.sqrt(cmiu__)
+                mesh_.cells[i].value["k"][-1] = 1 / np.sqrt(cmiu__)
         return
     def itersolve(self, *args):
         # GMRES
         # args mesh : mesh, under_relax : double, tol : double, max_iter : int, time_step : float, user : user, current_time : int
         # args mesh : mesh, user : user, what : str, time_step : int/double
-        self.calccoef(args[0], args[5], "k", args[4])
-        lhs_transient, rhs_transient = super().calctransient(args[0], "k", args[4], args[6])
+        self.calccoef(mesh_, args[5], "k", args[4])
+        lhs_transient, rhs_transient = super().calctransient(mesh_, "k", args[4], args[6])
         for i in range(0, lhs_transient.shape[0]):
             lhs_transient[i][i] = lhs_transient[i][i] / args[1]
         A = lambda x: sparse.linalg.spsolve(lhs_transient, x)
-        under_relax_b = np.transpose(np.array([[lhs_transient[i][i] * args[0].cells[i].value["k"][-1] * (1 - args[1]) \
+        under_relax_b = np.transpose(np.array([[lhs_transient[i][i] * mesh_.cells[i].value["k"][-1] * (1 - args[1]) \
                         for i in range(0, lhs_transient.shape[0])]]))
         b = self.rhs + under_relax_b
         x, exitCode = sparse.linalg.gmres(A, b, tol = args[2], maxiter = args[3])
-        prev_x = np.array([args[0].cells[i].value["k"]][-1] for i in args[0].cells.keys())
+        prev_x = np.array([mesh_.cells[i].value["k"]][-1] for i in mesh_.cells.keys())
         rmsr__ = super().calcrmsr(np.flatten(x), prev_x)
         print("{} [{}]; status: {}, prev. value RMSR = {}".format("k", self.current_time, exitCode, rmsr__))
         # update value and grad
-        self.updatevalue(args[0], "k", np.flatten(x))
-        self.calcwall(args[0])
+        self.updatevalue(mesh_, "k", np.flatten(x))
+        self.calcwall(mesh_)
         return rmsr__
 
 class turb_e(linear):
     def __init__(self, *args):
-        super().__init__(args[0])
+        super().__init__(mesh_)
     def calccoef(self, *args):
         # args mesh : mesh, user : user, what : str, time_step : int/double
         # fluid only
         prev_row = 0
         aC__ = 0.00
         bC__ = 0.00
-        neigh__ = args[0].templates.neighbor["fluid"].tocoo()
+        neigh__ = mesh_.templates.neighbor["fluid"].tocoo()
         for i, j, k in zip(neigh__.row, neigh__.col, neigh__.data):
-            Sf__  = args[0].geoms("Sf", i, k, False)
-            dCf__ = args[0].geoms("dCf", i, k, False)
-            eCF__ = args[0].geoms("eCF", i, j, False)
-            dCF__ = args[0].geoms("dCF", i, j, True)
+            Sf__  = mesh_.geoms("Sf", i, k, False)
+            dCf__ = mesh_.geoms("dCf", i, k, False)
+            eCF__ = mesh_.geoms("eCF", i, j, False)
+            dCF__ = mesh_.geoms("dCF", i, j, True)
             v__ = np.array([0.00, 0.00, 0.00], dtype = float)
-            v__[0] = args[0].faces[k].value["u"][-1]
-            v__[1] = args[0].faces[k].value["v"][-1]
-            v__[2] = args[0].faces[k].value["w"][-1]
-            Ret__ = args[0].faces[k].prop.rhs[-1] * pow(args[0].faces[k].value["k"][-1], 2) / \
-                    (args[0].faces[k].prop.miu[-1] * args[0].faces[k].value["e"][-1])
+            v__[0] = mesh_.faces[k].value["u"][-1]
+            v__[1] = mesh_.faces[k].value["v"][-1]
+            v__[2] = mesh_.faces[k].value["w"][-1]
+            Ret__ = mesh_.faces[k].prop.rhs[-1] * pow(mesh_.faces[k].value["k"][-1], 2) / \
+                    (mesh_.faces[k].prop.miu[-1] * mesh_.faces[k].value["e"][-1])
             cmiu__ = 0.09 * math.exp(-3.4 / pow(1 + Ret__/50, 2))
-            St_tensor__ = np.array([args[0].faces[k].grad["u"][-1], args[0].faces[k].grad["v"][-1], \
-                          args[0].faces[k].grad["w"][-1]])
+            St_tensor__ = np.array([mesh_.faces[k].grad["u"][-1], mesh_.faces[k].grad["v"][-1], \
+                          mesh_.faces[k].grad["w"][-1]])
             St_tensor__ = (St_tensor__ + np.transpose(St_tensor__)) * 0.5
             St__ = np.sqrt(St_tensor__.dot(St_tensor__))
-            ts__ = np.min(np.array([args[0].faces[k].value["k"][-1] / args[0].faces[k].value["e"][-1], \
-                   args[0].faces[k].prop.alpha[-1] / (np.sqrt(6) * cmiu__ * St__)]))
-            miut__ = args[0].faces[k].prop.rhs[-1] * cmiu__ * args[0].faces[k].value["k"][-1] * ts__
-            graditr__  = super().linearitr(args[0], ["grad", "e"], i, j, k)
+            ts__ = np.min(np.array([mesh_.faces[k].value["k"][-1] / mesh_.faces[k].value["e"][-1], \
+                   mesh_.faces[k].prop.alpha[-1] / (np.sqrt(6) * cmiu__ * St__)]))
+            miut__ = mesh_.faces[k].prop.rhs[-1] * cmiu__ * mesh_.faces[k].value["k"][-1] * ts__
+            graditr__  = super().linearitr(mesh_, ["grad", "e"], i, j, k)
             if prev_row == i:
-                aC__ += (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] \
+                aC__ += (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * mesh_.faces[k].prop.rhs[-1] \
                         * np.dot(v__, Sf__)
-                aC__ += (np.dot(eCF__, Sf__) / dCF__) * (args[0].faces[k].prop.miu[-1] + miut__ / 1.3)
+                aC__ += (np.dot(eCF__, Sf__) / dCF__) * (mesh_.faces[k].prop.miu[-1] + miut__ / 1.3)
                 bC__ += np.dot(np.dot(np.dot(graditr__, eCF__) * eCF__ - \
-                        (args[0].cells[i].grad["e"][-1] +  graditr__), dCf__) / 2, dCf__) * \
-                        args[0].faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
-                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) * (args[0].faces[k].prop.miu[-1] \
+                        (mesh_.cells[i].grad["e"][-1] +  graditr__), dCf__) / 2, dCf__) * \
+                        mesh_.faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
+                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) * (mesh_.faces[k].prop.miu[-1] \
                         + miut__ / 1.3)
-                self.lhs[i][j] = (np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] * \
+                self.lhs[i][j] = (np.dot(eCF__, dCf__) / (2 * dCF__)) * mesh_.faces[k].prop.rhs[-1] * \
                                      np.dot(v__, Sf__)
-                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * (args[0].faces[k].prop.miu[-1] + miut__ / 1.3)
+                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * (mesh_.faces[k].prop.miu[-1] + miut__ / 1.3)
                 prev_row = i
             else:
-                gradC_u__ = args[0].cells[prev_row].grad["u"][-1]
-                gradC_v__ = args[0].cells[prev_row].grad["v"][-1]
-                gradC_w__ = args[0].cells[prev_row].grad["w"][-1]
+                gradC_u__ = mesh_.cells[prev_row].grad["u"][-1]
+                gradC_v__ = mesh_.cells[prev_row].grad["v"][-1]
+                gradC_w__ = mesh_.cells[prev_row].grad["w"][-1]
                 phi_v__ = 2 * ( gradC_u__[0]**2  + gradC_v__[1]**2 + gradC_w__[2]**2 ) + pow(gradC_u__[1] + gradC_v__[0], 2) \
                           + pow(gradC_u__[2] + gradC_w__[0], 2) + pow(gradC_v__[2] + gradC_w__[1], 2)
-                Ret_C_ = args[0].cells[prev_row].prop.rhs[-1] * pow(args[0].cells[prev_row].value["k"][-1], 2) / \
-                        (args[0].cells[prev_row].prop.miu[-1] * args[0].cells[prev_row].value["e"][-1])
+                Ret_C_ = mesh_.cells[prev_row].prop.rhs[-1] * pow(mesh_.cells[prev_row].value["k"][-1], 2) / \
+                        (mesh_.cells[prev_row].prop.miu[-1] * mesh_.cells[prev_row].value["e"][-1])
                 cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
-                St_tensor_C_ = np.array([args[0].cells[prev_row].grad["u"][-1], args[0].cells[prev_row].grad["v"][-1], \
-                            args[0].cells[prev_row].grad["w"][-1]])
+                St_tensor_C_ = np.array([mesh_.cells[prev_row].grad["u"][-1], mesh_.cells[prev_row].grad["v"][-1], \
+                            mesh_.cells[prev_row].grad["w"][-1]])
                 St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5
                 St_C_ = np.sqrt(St_tensor_C_.dot(St_tensor_C_))
-                ts_C_ = np.min(np.array([args[0].cells[prev_row].value["k"][-1] / args[0].cells[prev_row].value["e"][-1], \
-                    args[0].cells[prev_row].prop.alpha[-1] / (np.sqrt(6) * cmiu_C_ * St_C_)]))
-                miut_C_ = args[0].cells[prev_row].prop.rhs[-1] * cmiu_C_ * args[0].cells[prev_row].value["k"][-1] * ts_C_
+                ts_C_ = np.min(np.array([mesh_.cells[prev_row].value["k"][-1] / mesh_.cells[prev_row].value["e"][-1], \
+                    mesh_.cells[prev_row].prop.alpha[-1] / (np.sqrt(6) * cmiu_C_ * St_C_)]))
+                miut_C_ = mesh_.cells[prev_row].prop.rhs[-1] * cmiu_C_ * mesh_.cells[prev_row].value["k"][-1] * ts_C_
                 ceps2 = 1.92 * (1 - 0.3 * math.exp(-1 * Ret_C_**2)) 
-                bC__ += (1.44 * miut_C_ * phi_v__ / ts_C_ - ceps2 * args[0].cells[prev_row].prop.rhs[-1] * args[0].cells[prev_row].value["e"][-1] / ts_C_) \
-                        * args[0].cells[prev_row].volume
+                bC__ += (1.44 * miut_C_ * phi_v__ / ts_C_ - ceps2 * mesh_.cells[prev_row].prop.rhs[-1] * mesh_.cells[prev_row].value["e"][-1] / ts_C_) \
+                        * mesh_.cells[prev_row].volume
                 self.lhs[prev_row][prev_row] = aC__
                 self.rhs[prev_row][0] = bC__
                 aC__ = 0.00
                 bC__ = 0.00
-                aC__ += (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] \
+                aC__ += (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * mesh_.faces[k].prop.rhs[-1] \
                         * np.dot(v__, Sf__)
-                aC__ += (np.dot(eCF__, Sf__) / dCF__) * (args[0].faces[k].prop.miu[-1] + miut__ / 1.3)
+                aC__ += (np.dot(eCF__, Sf__) / dCF__) * (mesh_.faces[k].prop.miu[-1] + miut__ / 1.3)
                 bC__ += np.dot(np.dot(np.dot(graditr__, eCF__) * eCF__ - \
-                        (args[0].cells[i].grad["e"][-1] +  graditr__), dCf__) / 2, dCf__) * \
-                        args[0].faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
-                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) * (args[0].faces[k].prop.miu[-1] \
+                        (mesh_.cells[i].grad["e"][-1] +  graditr__), dCf__) / 2, dCf__) * \
+                        mesh_.faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
+                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) * (mesh_.faces[k].prop.miu[-1] \
                         + miut__ / 1.3)
-                self.lhs[i][j] = (np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] * \
+                self.lhs[i][j] = (np.dot(eCF__, dCf__) / (2 * dCF__)) * mesh_.faces[k].prop.rhs[-1] * \
                                      np.dot(v__, Sf__)
-                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * (args[0].faces[k].prop.miu[-1] + miut__ / 1.3)
+                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * (mesh_.faces[k].prop.miu[-1] + miut__ / 1.3)
                 prev_row = i
-        gradC_u__ = args[0].cells[prev_row].grad["u"][-1]
-        gradC_v__ = args[0].cells[prev_row].grad["v"][-1]
-        gradC_w__ = args[0].cells[prev_row].grad["w"][-1]
+        gradC_u__ = mesh_.cells[prev_row].grad["u"][-1]
+        gradC_v__ = mesh_.cells[prev_row].grad["v"][-1]
+        gradC_w__ = mesh_.cells[prev_row].grad["w"][-1]
         phi_v__ = 2 * ( gradC_u__[0]**2  + gradC_v__[1]**2 + gradC_w__[2]**2 ) + pow(gradC_u__[1] + gradC_v__[0], 2) \
                     + pow(gradC_u__[2] + gradC_w__[0], 2) + pow(gradC_v__[2] + gradC_w__[1], 2)
-        Ret_C_ = args[0].cells[prev_row].prop.rhs[-1] * pow(args[0].cells[prev_row].value["k"][-1], 2) / \
-                (args[0].cells[prev_row].prop.miu[-1] * args[0].cells[prev_row].value["e"][-1])
+        Ret_C_ = mesh_.cells[prev_row].prop.rhs[-1] * pow(mesh_.cells[prev_row].value["k"][-1], 2) / \
+                (mesh_.cells[prev_row].prop.miu[-1] * mesh_.cells[prev_row].value["e"][-1])
         cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
-        St_tensor_C_ = np.array([args[0].cells[prev_row].grad["u"][-1], args[0].cells[prev_row].grad["v"][-1], \
-                    args[0].cells[prev_row].grad["w"][-1]])
+        St_tensor_C_ = np.array([mesh_.cells[prev_row].grad["u"][-1], mesh_.cells[prev_row].grad["v"][-1], \
+                    mesh_.cells[prev_row].grad["w"][-1]])
         St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5
         St_C_ = np.sqrt(St_tensor_C_.dot(St_tensor_C_))
-        ts_C_ = np.min(np.array([args[0].cells[prev_row].value["k"][-1] / args[0].cells[prev_row].value["e"][-1], \
-            args[0].cells[prev_row].prop.alpha[-1] / (np.sqrt(6) * cmiu_C_ * St_C_)]))
-        miut_C_ = args[0].cells[prev_row].prop.rhs[-1] * cmiu_C_ * args[0].cells[prev_row].value["k"][-1] * ts_C_
+        ts_C_ = np.min(np.array([mesh_.cells[prev_row].value["k"][-1] / mesh_.cells[prev_row].value["e"][-1], \
+            mesh_.cells[prev_row].prop.alpha[-1] / (np.sqrt(6) * cmiu_C_ * St_C_)]))
+        miut_C_ = mesh_.cells[prev_row].prop.rhs[-1] * cmiu_C_ * mesh_.cells[prev_row].value["k"][-1] * ts_C_
         ceps2 = 1.92 * (1 - 0.3 * math.exp(-1 * Ret_C_**2)) 
-        bC__ += (1.44 * miut_C_ * phi_v__ / ts_C_ - ceps2 * args[0].cells[prev_row].prop.rhs[-1] * args[0].cells[prev_row].value["e"][-1] / ts_C_) \
-                * args[0].cells[prev_row].volume
+        bC__ += (1.44 * miut_C_ * phi_v__ / ts_C_ - ceps2 * mesh_.cells[prev_row].prop.rhs[-1] * mesh_.cells[prev_row].value["e"][-1] / ts_C_) \
+                * mesh_.cells[prev_row].volume
         self.lhs[prev_row][prev_row] = aC__
         self.rhs[prev_row][0] = bC__
-        bound__ = args[0].templates.boundary["fluid"].tocoo()
+        bound__ = mesh_.templates.boundary["fluid"].tocoo()
         for i, j, k in zip(bound__.row, bound__.col, bound__.data):
             v__ = np.array([0.00, 0.00, 0.00], dtype = float)
-            v__[0] = args[0].faces[k].value["u"][-1]
-            v__[1] = args[0].faces[k].value["v"][-1]
-            v__[2] = args[0].faces[k].value["w"][-1]
-            for l in args[0].faces[j].bound:
-                self.calcbound(args[0], l, i, j, v__, args[1])
+            v__[0] = mesh_.faces[k].value["u"][-1]
+            v__[1] = mesh_.faces[k].value["v"][-1]
+            v__[2] = mesh_.faces[k].value["w"][-1]
+            for l in mesh_.faces[j].bound:
+                self.calcbound(mesh_, l, i, j, v__, args[1])
         return
     def calcbound(self, *args):
         # void
         # args mesh : mesh, bound name : str, cell id : int, face id : int, v__ : np.array([]), user : user
         if "inlet" in args[1]:
             # specified value; zero gradient at inlet
-            Sf__ = args[0].geoms("Sf", args[2], args[3], False)
-            eCf__ = args[0].geoms("eCf", args[2], args[3], False)
-            dCf__ = args[0].geoms("dCf", args[2], args[3], False)
-            grad_vin_v0_ = np.dot(args[0].cells[args[2]].grad["u"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["u"][-1], eCf__) * eCf__))
-            grad_vin_v1_ = np.dot(args[0].cells[args[2]].grad["v"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["v"][-1], eCf__) * eCf__))
-            grad_vin_v2_ = np.dot(args[0].cells[args[2]].grad["w"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["w"][-1], eCf__) * eCf__))
-            vin_v0_ = args[0].cells[args[2]].value["u"][-1] + np.dot(grad_vin_v0_, dCf__)
-            vin_v1_ = args[0].cells[args[2]].value["v"][-1] + np.dot(grad_vin_v1_, dCf__)
-            vin_v2_ = args[0].cells[args[2]].value["w"][-1] + np.dot(grad_vin_v2_, dCf__)
+            Sf__ = mesh_.geoms("Sf", args[2], args[3], False)
+            eCf__ = mesh_.geoms("eCf", args[2], args[3], False)
+            dCf__ = mesh_.geoms("dCf", args[2], args[3], False)
+            grad_vin_v0_ = np.dot(mesh_.cells[args[2]].grad["u"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["u"][-1], eCf__) * eCf__))
+            grad_vin_v1_ = np.dot(mesh_.cells[args[2]].grad["v"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["v"][-1], eCf__) * eCf__))
+            grad_vin_v2_ = np.dot(mesh_.cells[args[2]].grad["w"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["w"][-1], eCf__) * eCf__))
+            vin_v0_ = mesh_.cells[args[2]].value["u"][-1] + np.dot(grad_vin_v0_, dCf__)
+            vin_v1_ = mesh_.cells[args[2]].value["v"][-1] + np.dot(grad_vin_v1_, dCf__)
+            vin_v2_ = mesh_.cells[args[2]].value["w"][-1] + np.dot(grad_vin_v2_, dCf__)
             vin__ = np.array([vin_v0_, vin_v1_, vin_v2_], dtype = float)
-            grad_ein_ = np.dot(args[0].cells[args[2]].grad["e"][-1] - \
-                         (np.dot(args[0].cells[args[2]].grad["e"][-1], eCf__) * eCf__))
-            ein_ = pow(0.5 * np.dot(vin__, vin__) * 0.01**2, 1.5) * 0.09 / (0.1 * args[0].cells[args[2]].volume)
-            self.rhs[args[2]][0] += -args[0].faces[args[3]].prop.rhs[-1] * np.dot(vin__, Sf__) * ein_
-            self.rhs[args[2]][0] += -args[0].faces[args[3]].prop.rhs[-1] * np.dot(vin__, Sf__) * np.dot(grad_ein_, dCf__)
+            grad_ein_ = np.dot(mesh_.cells[args[2]].grad["e"][-1] - \
+                         (np.dot(mesh_.cells[args[2]].grad["e"][-1], eCf__) * eCf__))
+            ein_ = pow(0.5 * np.dot(vin__, vin__) * 0.01**2, 1.5) * 0.09 / (0.1 * mesh_.cells[args[2]].volume)
+            self.rhs[args[2]][0] += -mesh_.faces[args[3]].prop.rhs[-1] * np.dot(vin__, Sf__) * ein_
+            self.rhs[args[2]][0] += -mesh_.faces[args[3]].prop.rhs[-1] * np.dot(vin__, Sf__) * np.dot(grad_ein_, dCf__)
         elif "outlet" in args[1]:
             # fully developed flow; zero gradient at outlet
-            Sf__ = args[0].geoms("Sf", args[2], args[3], False)
-            eCf__ = args[0].geoms("eCf", args[2], args[3], False)
-            dCf__ = args[0].geoms("dCf", args[2], args[3], False)
-            grad_vout_v0_ = np.dot(args[0].cells[args[2]].grad["u"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["u"][-1], eCf__) * eCf__))
-            grad_vout_v1_ = np.dot(args[0].cells[args[2]].grad["v"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["v"][-1], eCf__) * eCf__))
-            grad_vout_v2_ = np.dot(args[0].cells[args[2]].grad["w"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["w"][-1], eCf__) * eCf__))
-            vout_v0_ = args[0].cells[args[2]].value["u"][-1] + np.dot(grad_vout_v0_, dCf__)
-            vout_v1_ = args[0].cells[args[2]].value["v"][-1] + np.dot(grad_vout_v1_, dCf__)
-            vout_v2_ = args[0].cells[args[2]].value["w"][-1] + np.dot(grad_vout_v2_, dCf__)
+            Sf__ = mesh_.geoms("Sf", args[2], args[3], False)
+            eCf__ = mesh_.geoms("eCf", args[2], args[3], False)
+            dCf__ = mesh_.geoms("dCf", args[2], args[3], False)
+            grad_vout_v0_ = np.dot(mesh_.cells[args[2]].grad["u"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["u"][-1], eCf__) * eCf__))
+            grad_vout_v1_ = np.dot(mesh_.cells[args[2]].grad["v"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["v"][-1], eCf__) * eCf__))
+            grad_vout_v2_ = np.dot(mesh_.cells[args[2]].grad["w"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["w"][-1], eCf__) * eCf__))
+            vout_v0_ = mesh_.cells[args[2]].value["u"][-1] + np.dot(grad_vout_v0_, dCf__)
+            vout_v1_ = mesh_.cells[args[2]].value["v"][-1] + np.dot(grad_vout_v1_, dCf__)
+            vout_v2_ = mesh_.cells[args[2]].value["w"][-1] + np.dot(grad_vout_v2_, dCf__)
             vout__ = np.array([vout_v0_, vout_v1_, vout_v2_], dtype = float)
-            grad_eout_ = np.dot(args[0].cells[args[2]].grad["e"][-1] - \
-                         (np.dot(args[0].cells[args[2]].grad["e"][-1], eCf__) * eCf__))
-            self.lhs[args[2]][args[2]] += args[0].faces[args[3]].prop.rhs[-1] * np.dot(vout__, Sf__)
-            self.rhs[args[2]][0] += -args[0].faces[args[3]].prop.rhs[-1] * np.dot(vout__, Sf__) * np.dot(grad_eout_, dCf__)
+            grad_eout_ = np.dot(mesh_.cells[args[2]].grad["e"][-1] - \
+                         (np.dot(mesh_.cells[args[2]].grad["e"][-1], eCf__) * eCf__))
+            self.lhs[args[2]][args[2]] += mesh_.faces[args[3]].prop.rhs[-1] * np.dot(vout__, Sf__)
+            self.rhs[args[2]][0] += -mesh_.faces[args[3]].prop.rhs[-1] * np.dot(vout__, Sf__) * np.dot(grad_eout_, dCf__)
         else:
             pass
         return
     def calcwall(self, *args):
         # args mesh : mesh
-        for i in args[0].cells.keys():
-            if args[0].cells[i].conj_id >= 0:
+        for i in mesh_.cells.keys():
+            if mesh_.cells[i].conj_id >= 0:
                 v__ = np.array([0.00, 0.00, 0.00], dtype = float)
-                v__[0] = args[0].cells[i].value["u"][-1]
-                v__[1] = args[0].cells[i].value["v"][-1]
-                v__[2] = args[0].cells[i].value["w"][-1]
+                v__[0] = mesh_.cells[i].value["u"][-1]
+                v__[1] = mesh_.cells[i].value["v"][-1]
+                v__[2] = mesh_.cells[i].value["w"][-1]
                 v_val_ = np.sqrt(np.sum(np.array([map(lambda x: x^2, v__)])))
-                Ret__ = args[0].cells[i].prop.rhs[-1] * pow(args[0].cells[i].value["k"][-1], 2) / \
-                        (args[0].cells[i].prop.miu[-1] * args[0].cells[i].value["e"][-1])
+                Ret__ = mesh_.cells[i].prop.rhs[-1] * pow(mesh_.cells[i].value["k"][-1], 2) / \
+                        (mesh_.cells[i].prop.miu[-1] * mesh_.cells[i].value["e"][-1])
                 cmiu__ = 0.09 * math.exp(-3.4 / pow(1 + Ret__/50, 2))
-                gradCfluid__ = args[0].cells[i].grad["T"][-1]
-                dperp__ = (np.sqrt(2 * args[0].cells[i].value["e"][-1]) - 1) * \
+                gradCfluid__ = mesh_.cells[i].grad["T"][-1]
+                dperp__ = (np.sqrt(2 * mesh_.cells[i].value["e"][-1]) - 1) * \
                             np.sqrt(gradCfluid__[0]**2 + gradCfluid__[1]**2 + gradCfluid__[2]**2)
-                dCplus__ = dperp__ * pow(cmiu__, 0.25) * np.sqrt(args[0].cells[i].value["k"][-1]) * \
-                            args[0].cells[i].prop.rhs[-1] / args[0].cells[i].prop.miu[-1]
+                dCplus__ = dperp__ * pow(cmiu__, 0.25) * np.sqrt(mesh_.cells[i].value["k"][-1]) * \
+                            mesh_.cells[i].prop.rhs[-1] / mesh_.cells[i].prop.miu[-1]
                 dCplus__ = np.max(np.array([dCplus__, 11.06]))
                 miutau__ = v_val_ * 0.41 / (np.log(dCplus__) + 5.25)
-                eplus__ =  args[0].cells[i].prop.miu[-1] / (args[0].cells[i].prop.rhs[-1] * miutau__ * 0.41 * dperp__)
-                args[0].cells[i].value["e"][-1] = eplus__
+                eplus__ =  mesh_.cells[i].prop.miu[-1] / (mesh_.cells[i].prop.rhs[-1] * miutau__ * 0.41 * dperp__)
+                mesh_.cells[i].value["e"][-1] = eplus__
         return
     def itersolve(self, *args):
         # GMRES
         # args mesh : mesh, under_relax : double, tol : double, max_iter : int, time_step : float, user : user, current_time : int
         # args mesh : mesh, user : user, what : str, time_step : int/double
-        self.calccoef(args[0], args[5], "e", args[4])
-        lhs_transient, rhs_transient = super().calctransient(args[0], "e", args[4], args[6])
+        self.calccoef(mesh_, args[5], "e", args[4])
+        lhs_transient, rhs_transient = super().calctransient(mesh_, "e", args[4], args[6])
         for i in range(0, lhs_transient.shape[0]):
             lhs_transient[i][i] = lhs_transient[i][i] / args[1]
         A = lambda x: sparse.linalg.spsolve(lhs_transient, x)
-        under_relax_b = np.transpose(np.array([[lhs_transient[i][i] * args[0].cells[i].value["e"][-1] * (1 - args[1]) \
+        under_relax_b = np.transpose(np.array([[lhs_transient[i][i] * mesh_.cells[i].value["e"][-1] * (1 - args[1]) \
                         for i in range(0, lhs_transient.shape[0])]]))
         b = self.rhs + under_relax_b
         x, exitCode = sparse.linalg.gmres(A, b, tol = args[2], maxiter = args[3])
-        prev_x = np.array([args[0].cells[i].value["e"]][-1] for i in args[0].cells.keys())
+        prev_x = np.array([mesh_.cells[i].value["e"]][-1] for i in mesh_.cells.keys())
         rmsr__ = super().calcrmsr(np.flatten(x), prev_x)
         print("{} [{}]; status: {}, prev. value RMSR = {}".format("e", self.current_time, exitCode, rmsr__))
         # update value and grad
-        self.updatevalue(args[0], "k", np.flatten(x))
-        self.calcwall(args[0])
+        self.updatevalue(mesh_, "k", np.flatten(x))
+        self.calcwall(mesh_)
         return rmsr__
 
 class energy(linear):
     def __init__(self, *args):
-        super().__init__(args[0])
+        super().__init__(mesh_)
     def calccoef(self, *args):
         # args mesh : mesh, user : user, what : str, time_step : int/double
         # fluid
         prev_row = 0
         aC__ = 0.00
         bC__ = 0.00
-        neigh__ = args[0].templates.neighbor["fluid"].tocoo()
+        neigh__ = mesh_.templates.neighbor["fluid"].tocoo()
         for i, j, k in zip(neigh__.row, neigh__.col, neigh__.data):
-            Sf__  = args[0].geoms("Sf", i, k, False)
-            dCf__ = args[0].geoms("dCf", i, k, False)
-            eCF__ = args[0].geoms("eCF", i, j, False)
-            dCF__ = args[0].geoms("dCF", i, j, True)
+            Sf__  = mesh_.geoms("Sf", i, k, False)
+            dCf__ = mesh_.geoms("dCf", i, k, False)
+            eCF__ = mesh_.geoms("eCF", i, j, False)
+            dCF__ = mesh_.geoms("dCF", i, j, True)
             v__ = np.array([0.00, 0.00, 0.00], dtype = float)
-            v__[0] = args[0].faces[k].value["u"][-1]
-            v__[1] = args[0].faces[k].value["v"][-1]
-            v__[2] = args[0].faces[k].value["w"][-1]
-            Ret__ = args[0].faces[k].prop.rhs[-1] * pow(args[0].faces[k].value["k"][-1], 2) / \
-                    (args[0].faces[k].prop.miu[-1] * args[0].faces[k].value["e"][-1])
+            v__[0] = mesh_.faces[k].value["u"][-1]
+            v__[1] = mesh_.faces[k].value["v"][-1]
+            v__[2] = mesh_.faces[k].value["w"][-1]
+            Ret__ = mesh_.faces[k].prop.rhs[-1] * pow(mesh_.faces[k].value["k"][-1], 2) / \
+                    (mesh_.faces[k].prop.miu[-1] * mesh_.faces[k].value["e"][-1])
             cmiu__ = 0.09 * math.exp(-3.4 / pow(1 + Ret__/50, 2))
-            St_tensor__ = np.array([args[0].faces[k].grad["u"][-1], args[0].faces[k].grad["v"][-1], \
-                          args[0].faces[k].grad["w"][-1]])
+            St_tensor__ = np.array([mesh_.faces[k].grad["u"][-1], mesh_.faces[k].grad["v"][-1], \
+                          mesh_.faces[k].grad["w"][-1]])
             St_tensor__ = (St_tensor__ + np.transpose(St_tensor__)) * 0.5
             St__ = np.sqrt(St_tensor__.dot(St_tensor__))
-            ts__ = np.min(np.array([args[0].faces[k].value["k"][-1] / args[0].faces[k].value["e"][-1], \
-                   args[0].faces[k].prop.alpha[-1] / (np.sqrt(6) * cmiu__ * St__)]))
-            miut__ = args[0].faces[k].prop.rhs[-1] * cmiu__ * args[0].faces[k].value["k"][-1] * ts__
-            graditr__  = super().linearitr(args[0], ["grad", "T"], i, j, k)
-            Pr__ = args[0].faces[k].prop.miu[-1] / (args[0].faces[k].prop.rhs[-1] * args[0].faces[k].prop.alpha[-1])
+            ts__ = np.min(np.array([mesh_.faces[k].value["k"][-1] / mesh_.faces[k].value["e"][-1], \
+                   mesh_.faces[k].prop.alpha[-1] / (np.sqrt(6) * cmiu__ * St__)]))
+            miut__ = mesh_.faces[k].prop.rhs[-1] * cmiu__ * mesh_.faces[k].value["k"][-1] * ts__
+            graditr__  = super().linearitr(mesh_, ["grad", "T"], i, j, k)
+            Pr__ = mesh_.faces[k].prop.miu[-1] / (mesh_.faces[k].prop.rhs[-1] * mesh_.faces[k].prop.alpha[-1])
             if prev_row == i:
-                aC__ += args[0].faces[k].prop.cp[-1] * (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] \
+                aC__ += mesh_.faces[k].prop.cp[-1] * (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * mesh_.faces[k].prop.rhs[-1] \
                         * np.dot(v__, Sf__)
-                aC__ += (np.dot(eCF__, Sf__) / dCF__) * args[0].faces[k].prop.cp[-1] * (args[0].faces[k].prop.miu[-1] / Pr__ + miut__ / 0.9)
-                bC__ += args[0].faces[k].prop.cp[-1] * np.dot(np.dot(np.dot(graditr__, eCF__) * eCF__ - \
-                        (args[0].cells[i].grad["T"][-1] +  graditr__), dCf__) / 2, dCf__) * \
-                        args[0].faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
-                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) *  args[0].faces[k].prop.cp[-1] * \
-                        (args[0].faces[k].prop.miu[-1] / Pr__ + miut__ / 0.9)
-                self.lhs[i][j] = args[0].faces[k].prop.cp[-1] * (np.dot(eCF__, dCf__) / (2 * dCF__)) * \
-                                    args[0].faces[k].prop.rhs[-1] * np.dot(v__, Sf__)
-                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * args[0].faces[k].prop.cp[-1] * (args[0].faces[k].prop.miu[-1] \
+                aC__ += (np.dot(eCF__, Sf__) / dCF__) * mesh_.faces[k].prop.cp[-1] * (mesh_.faces[k].prop.miu[-1] / Pr__ + miut__ / 0.9)
+                bC__ += mesh_.faces[k].prop.cp[-1] * np.dot(np.dot(np.dot(graditr__, eCF__) * eCF__ - \
+                        (mesh_.cells[i].grad["T"][-1] +  graditr__), dCf__) / 2, dCf__) * \
+                        mesh_.faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
+                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) *  mesh_.faces[k].prop.cp[-1] * \
+                        (mesh_.faces[k].prop.miu[-1] / Pr__ + miut__ / 0.9)
+                self.lhs[i][j] = mesh_.faces[k].prop.cp[-1] * (np.dot(eCF__, dCf__) / (2 * dCF__)) * \
+                                    mesh_.faces[k].prop.rhs[-1] * np.dot(v__, Sf__)
+                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * mesh_.faces[k].prop.cp[-1] * (mesh_.faces[k].prop.miu[-1] \
                                       / Pr__ + miut__ / 0.9)
                 prev_row = i
             else:
-                gradC_u__ = args[0].cells[prev_row].grad["u"][-1]
-                gradC_v__ = args[0].cells[prev_row].grad["v"][-1]
-                gradC_w__ = args[0].cells[prev_row].grad["w"][-1]
+                gradC_u__ = mesh_.cells[prev_row].grad["u"][-1]
+                gradC_v__ = mesh_.cells[prev_row].grad["v"][-1]
+                gradC_w__ = mesh_.cells[prev_row].grad["w"][-1]
                 phi_v__ = 2 * ( gradC_u__[0]**2  + gradC_v__[1]**2 + gradC_w__[2]**2 ) + pow(gradC_u__[1] + gradC_v__[0], 2) \
                           + pow(gradC_u__[2] + gradC_w__[0], 2) + pow(gradC_v__[2] + gradC_w__[1], 2)
-                Ret_C_ = args[0].cells[prev_row].prop.rhs[-1] * pow(args[0].cells[prev_row].value["k"][-1], 2) / \
-                        (args[0].cells[prev_row].prop.miu[-1] * args[0].cells[prev_row].value["e"][-1])
+                Ret_C_ = mesh_.cells[prev_row].prop.rhs[-1] * pow(mesh_.cells[prev_row].value["k"][-1], 2) / \
+                        (mesh_.cells[prev_row].prop.miu[-1] * mesh_.cells[prev_row].value["e"][-1])
                 cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
-                St_tensor_C_ = np.array([args[0].cells[prev_row].grad["u"][-1], args[0].cells[prev_row].grad["v"][-1], \
-                            args[0].cells[prev_row].grad["w"][-1]])
+                St_tensor_C_ = np.array([mesh_.cells[prev_row].grad["u"][-1], mesh_.cells[prev_row].grad["v"][-1], \
+                            mesh_.cells[prev_row].grad["w"][-1]])
                 St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5
                 St_C_ = np.sqrt(St_tensor_C_.dot(St_tensor_C_))
-                ts_C_ = np.min(np.array([args[0].cells[prev_row].value["k"][-1] / args[0].cells[prev_row].value["e"][-1], \
-                    args[0].cells[prev_row].prop.alpha[-1] / (np.sqrt(6) * cmiu_C_ * St_C_)]))
-                miut_C_ = args[0].cells[prev_row].prop.rhs[-1] * cmiu_C_ * args[0].cells[prev_row].value["k"][-1] * ts_C_
-                bC__ += (args[0].cells[prev_row].prop.miu[-1] + miut_C_) * phi_v__ * args[0].cells[prev_row].volume
+                ts_C_ = np.min(np.array([mesh_.cells[prev_row].value["k"][-1] / mesh_.cells[prev_row].value["e"][-1], \
+                    mesh_.cells[prev_row].prop.alpha[-1] / (np.sqrt(6) * cmiu_C_ * St_C_)]))
+                miut_C_ = mesh_.cells[prev_row].prop.rhs[-1] * cmiu_C_ * mesh_.cells[prev_row].value["k"][-1] * ts_C_
+                bC__ += (mesh_.cells[prev_row].prop.miu[-1] + miut_C_) * phi_v__ * mesh_.cells[prev_row].volume
                 self.lhs[prev_row][prev_row] = aC__
                 self.rhs[prev_row][0] = bC__
                 aC__ = 0.00
                 bC__ = 0.00
-                aC__ += args[0].faces[k].prop.cp[-1] * (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] \
+                aC__ += mesh_.faces[k].prop.cp[-1] * (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * mesh_.faces[k].prop.rhs[-1] \
                         * np.dot(v__, Sf__)
-                aC__ += (np.dot(eCF__, Sf__) / dCF__) * args[0].faces[k].prop.cp[-1] * (args[0].faces[k].prop.miu[-1] / Pr__ + miut__ / 0.9)
-                bC__ += args[0].faces[k].prop.cp[-1] * np.dot(np.dot(np.dot(graditr__, eCF__) * eCF__ - \
-                        (args[0].cells[i].grad["T"][-1] +  graditr__), dCf__) / 2, dCf__) * \
-                        args[0].faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
-                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) *  args[0].faces[k].prop.cp[-1] * \
-                        (args[0].faces[k].prop.miu[-1] / Pr__ + miut__ / 0.9)
-                self.lhs[i][j] = args[0].faces[k].prop.cp[-1] * (np.dot(eCF__, dCf__) / (2 * dCF__)) * \
-                                    args[0].faces[k].prop.rhs[-1] * np.dot(v__, Sf__)
-                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * args[0].faces[k].prop.cp[-1] * (args[0].faces[k].prop.miu[-1] \
+                aC__ += (np.dot(eCF__, Sf__) / dCF__) * mesh_.faces[k].prop.cp[-1] * (mesh_.faces[k].prop.miu[-1] / Pr__ + miut__ / 0.9)
+                bC__ += mesh_.faces[k].prop.cp[-1] * np.dot(np.dot(np.dot(graditr__, eCF__) * eCF__ - \
+                        (mesh_.cells[i].grad["T"][-1] +  graditr__), dCf__) / 2, dCf__) * \
+                        mesh_.faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
+                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) *  mesh_.faces[k].prop.cp[-1] * \
+                        (mesh_.faces[k].prop.miu[-1] / Pr__ + miut__ / 0.9)
+                self.lhs[i][j] = mesh_.faces[k].prop.cp[-1] * (np.dot(eCF__, dCf__) / (2 * dCF__)) * \
+                                    mesh_.faces[k].prop.rhs[-1] * np.dot(v__, Sf__)
+                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * mesh_.faces[k].prop.cp[-1] * (mesh_.faces[k].prop.miu[-1] \
                                       / Pr__ + miut__ / 0.9)
                 prev_row = i
-        gradC_u__ = args[0].cells[prev_row].grad["u"][-1]
-        gradC_v__ = args[0].cells[prev_row].grad["v"][-1]
-        gradC_w__ = args[0].cells[prev_row].grad["w"][-1]
+        gradC_u__ = mesh_.cells[prev_row].grad["u"][-1]
+        gradC_v__ = mesh_.cells[prev_row].grad["v"][-1]
+        gradC_w__ = mesh_.cells[prev_row].grad["w"][-1]
         phi_v__ = 2 * ( gradC_u__[0]**2  + gradC_v__[1]**2 + gradC_w__[2]**2 ) + pow(gradC_u__[1] + gradC_v__[0], 2) \
                     + pow(gradC_u__[2] + gradC_w__[0], 2) + pow(gradC_v__[2] + gradC_w__[1], 2)
-        Ret_C_ = args[0].cells[prev_row].prop.rhs[-1] * pow(args[0].cells[prev_row].value["k"][-1], 2) / \
-                (args[0].cells[prev_row].prop.miu[-1] * args[0].cells[prev_row].value["e"][-1])
+        Ret_C_ = mesh_.cells[prev_row].prop.rhs[-1] * pow(mesh_.cells[prev_row].value["k"][-1], 2) / \
+                (mesh_.cells[prev_row].prop.miu[-1] * mesh_.cells[prev_row].value["e"][-1])
         cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
-        St_tensor_C_ = np.array([args[0].cells[prev_row].grad["u"][-1], args[0].cells[prev_row].grad["v"][-1], \
-                    args[0].cells[prev_row].grad["w"][-1]])
+        St_tensor_C_ = np.array([mesh_.cells[prev_row].grad["u"][-1], mesh_.cells[prev_row].grad["v"][-1], \
+                    mesh_.cells[prev_row].grad["w"][-1]])
         St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5
         St_C_ = np.sqrt(St_tensor_C_.dot(St_tensor_C_))
-        ts_C_ = np.min(np.array([args[0].cells[prev_row].value["k"][-1] / args[0].cells[prev_row].value["e"][-1], \
-            args[0].cells[prev_row].prop.alpha[-1] / (np.sqrt(6) * cmiu_C_ * St_C_)]))
-        miut_C_ = args[0].cells[prev_row].prop.rhs[-1] * cmiu_C_ * args[0].cells[prev_row].value["k"][-1] * ts_C_
-        bC__ += (args[0].cells[prev_row].prop.miu[-1] + miut_C_) * phi_v__ * args[0].cells[prev_row].volume
+        ts_C_ = np.min(np.array([mesh_.cells[prev_row].value["k"][-1] / mesh_.cells[prev_row].value["e"][-1], \
+            mesh_.cells[prev_row].prop.alpha[-1] / (np.sqrt(6) * cmiu_C_ * St_C_)]))
+        miut_C_ = mesh_.cells[prev_row].prop.rhs[-1] * cmiu_C_ * mesh_.cells[prev_row].value["k"][-1] * ts_C_
+        bC__ += (mesh_.cells[prev_row].prop.miu[-1] + miut_C_) * phi_v__ * mesh_.cells[prev_row].volume
         self.lhs[prev_row][prev_row] = aC__
         self.rhs[prev_row][0] = bC__
-        bound__ = args[0].templates.boundary["fluid"].tocoo()
+        bound__ = mesh_.templates.boundary["fluid"].tocoo()
         for i, j, k in zip(bound__.row, bound__.col, bound__.data):
             v__ = np.array([0.00, 0.00, 0.00], dtype = float)
-            v__[0] = args[0].faces[k].value["u"][-1]
-            v__[1] = args[0].faces[k].value["v"][-1]
-            v__[2] = args[0].faces[k].value["w"][-1]
-            for l in args[0].faces[j].bound:
-                self.calcbound(args[0], l, i, j, v__, args[1])
+            v__[0] = mesh_.faces[k].value["u"][-1]
+            v__[1] = mesh_.faces[k].value["v"][-1]
+            v__[2] = mesh_.faces[k].value["w"][-1]
+            for l in mesh_.faces[j].bound:
+                self.calcbound(mesh_, l, i, j, v__, args[1])
         # solid
         prev_row = 0
         aC__ = 0.00
         bC__ = 0.00
-        neigh__ = args[0].templates.neighbor["solid"].tocoo()
+        neigh__ = mesh_.templates.neighbor["solid"].tocoo()
         for i, j, k in zip(neigh__.row, neigh__.col, neigh__.data):
-            Sf__  = args[0].geoms("Sf", i, k, False)
-            dCf__ = args[0].geoms("dCf", i, k, False)
-            eCF__ = args[0].geoms("eCF", i, j, False)
-            dCF__ = args[0].geoms("dCF", i, j, True)
+            Sf__  = mesh_.geoms("Sf", i, k, False)
+            dCf__ = mesh_.geoms("dCf", i, k, False)
+            eCF__ = mesh_.geoms("eCF", i, j, False)
+            dCF__ = mesh_.geoms("dCF", i, j, True)
             v__ = np.array([0.00, 0.00, 0.00], dtype = float)
-            v__[0] = args[0].faces[k].value["u"][-1]
-            v__[1] = args[0].faces[k].value["v"][-1]
-            v__[2] = args[0].faces[k].value["w"][-1]
-            Ret__ = args[0].faces[k].prop.rhs[-1] * pow(args[0].faces[k].value["k"][-1], 2) / \
-                    (args[0].faces[k].prop.miu[-1] * args[0].faces[k].value["e"][-1])
+            v__[0] = mesh_.faces[k].value["u"][-1]
+            v__[1] = mesh_.faces[k].value["v"][-1]
+            v__[2] = mesh_.faces[k].value["w"][-1]
+            Ret__ = mesh_.faces[k].prop.rhs[-1] * pow(mesh_.faces[k].value["k"][-1], 2) / \
+                    (mesh_.faces[k].prop.miu[-1] * mesh_.faces[k].value["e"][-1])
             cmiu__ = 0.09 * math.exp(-3.4 / pow(1 + Ret__/50, 2))
-            St_tensor__ = np.array([args[0].faces[k].grad["u"][-1], args[0].faces[k].grad["v"][-1], \
-                          args[0].faces[k].grad["w"][-1]])
+            St_tensor__ = np.array([mesh_.faces[k].grad["u"][-1], mesh_.faces[k].grad["v"][-1], \
+                          mesh_.faces[k].grad["w"][-1]])
             St_tensor__ = (St_tensor__ + np.transpose(St_tensor__)) * 0.5
             St__ = np.sqrt(St_tensor__.dot(St_tensor__))
-            ts__ = np.min(np.array([args[0].faces[k].value["k"][-1] / args[0].faces[k].value["e"][-1], \
-                   args[0].faces[k].prop.alpha[-1] / (np.sqrt(6) * cmiu__ * St__)]))
-            miut__ = args[0].faces[k].prop.rhs[-1] * cmiu__ * args[0].faces[k].value["k"][-1] * ts__
-            graditr__  = super().linearitr(args[0], ["grad", "T"], i, j, k)
+            ts__ = np.min(np.array([mesh_.faces[k].value["k"][-1] / mesh_.faces[k].value["e"][-1], \
+                   mesh_.faces[k].prop.alpha[-1] / (np.sqrt(6) * cmiu__ * St__)]))
+            miut__ = mesh_.faces[k].prop.rhs[-1] * cmiu__ * mesh_.faces[k].value["k"][-1] * ts__
+            graditr__  = super().linearitr(mesh_, ["grad", "T"], i, j, k)
             if prev_row == i:
-                aC__ += args[0].faces[k].prop.cp[-1] * (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] \
+                aC__ += mesh_.faces[k].prop.cp[-1] * (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * mesh_.faces[k].prop.rhs[-1] \
                         * np.dot(v__, Sf__)
-                aC__ += (np.dot(eCF__, Sf__) / dCF__) * args[0].faces[k].prop.k[-1]
-                bC__ += args[0].faces[k].prop.cp[-1] * np.dot(np.dot(np.dot(graditr__, eCF__) * eCF__ - \
-                        (args[0].cells[i].grad["T"][-1] +  graditr__), dCf__) / 2, dCf__) * \
-                        args[0].faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
-                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) * args[0].faces[k].prop.k[-1]
-                self.lhs[i][j] = args[0].faces[k].prop.cp[-1] * (np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] * \
+                aC__ += (np.dot(eCF__, Sf__) / dCF__) * mesh_.faces[k].prop.k[-1]
+                bC__ += mesh_.faces[k].prop.cp[-1] * np.dot(np.dot(np.dot(graditr__, eCF__) * eCF__ - \
+                        (mesh_.cells[i].grad["T"][-1] +  graditr__), dCf__) / 2, dCf__) * \
+                        mesh_.faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
+                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) * mesh_.faces[k].prop.k[-1]
+                self.lhs[i][j] = mesh_.faces[k].prop.cp[-1] * (np.dot(eCF__, dCf__) / (2 * dCF__)) * mesh_.faces[k].prop.rhs[-1] * \
                                      np.dot(v__, Sf__)
-                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * (args[0].faces[k].prop.k[-1])
+                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * (mesh_.faces[k].prop.k[-1])
                 prev_row = i
             else:
-                for l in args[0].cells[i].domain:
+                for l in mesh_.cells[i].domain:
                     if l in args[1].constants.columns:
-                        bC__ += args[i].constants.loc[0, l] * args[0].geoms("Sf", prev_row, k, True)
+                        bC__ += args[i].constants.loc[0, l] * mesh_.geoms("Sf", prev_row, k, True)
                 self.lhs[prev_row][prev_row] = aC__
                 self.rhs[prev_row][0] = bC__
                 aC__ = 0.00
                 bC__ = 0.00
-                aC__ += args[0].faces[k].prop.cp[-1] * (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] \
+                aC__ += mesh_.faces[k].prop.cp[-1] * (1 - np.dot(eCF__, dCf__) / (2 * dCF__)) * mesh_.faces[k].prop.rhs[-1] \
                         * np.dot(v__, Sf__)
-                aC__ += (np.dot(eCF__, Sf__) / dCF__) * args[0].faces[k].prop.k[-1]
-                bC__ += args[0].faces[k].prop.cp[-1] * np.dot(np.dot(np.dot(graditr__, eCF__) * eCF__ - \
-                        (args[0].cells[i].grad["T"][-1] +  graditr__), dCf__) / 2, dCf__) * \
-                        args[0].faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
-                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) * args[0].faces[k].prop.k[-1]
-                self.lhs[i][j] = args[0].faces[k].prop.cp[-1] * (np.dot(eCF__, dCf__) / (2 * dCF__)) * args[0].faces[k].prop.rhs[-1] * \
+                aC__ += (np.dot(eCF__, Sf__) / dCF__) * mesh_.faces[k].prop.k[-1]
+                bC__ += mesh_.faces[k].prop.cp[-1] * np.dot(np.dot(np.dot(graditr__, eCF__) * eCF__ - \
+                        (mesh_.cells[i].grad["T"][-1] +  graditr__), dCf__) / 2, dCf__) * \
+                        mesh_.faces[k].prop.rhs[-1] * np.dot(v__, Sf__) 
+                bC__ += np.dot(graditr__ - (np.dot(graditr__, eCF__) * eCF__), Sf__) * mesh_.faces[k].prop.k[-1]
+                self.lhs[i][j] = mesh_.faces[k].prop.cp[-1] * (np.dot(eCF__, dCf__) / (2 * dCF__)) * mesh_.faces[k].prop.rhs[-1] * \
                                      np.dot(v__, Sf__)
-                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * (args[0].faces[k].prop.k[-1])
+                self.lhs[i][j] += -(np.dot(eCF__, Sf__) / dCF__) * (mesh_.faces[k].prop.k[-1])
                 prev_row = i
-        for l in args[0].cells[i].domain:
+        for l in mesh_.cells[i].domain:
             if l in args[1].constants.columns:
-                bC__ += args[i].constants.loc[0, l] * args[0].geoms("Sf", prev_row, k, True)
+                bC__ += args[i].constants.loc[0, l] * mesh_.geoms("Sf", prev_row, k, True)
         self.lhs[prev_row][prev_row] = aC__
         self.rhs[prev_row][0] = bC__
-        bound__ = args[0].templates.boundary["solid"].tocoo()
+        bound__ = mesh_.templates.boundary["solid"].tocoo()
         for i, j, k in zip(bound__.row, bound__.col, bound__.data):
             v__ = np.array([0.00, 0.00, 0.00], dtype = float)
-            v__[0] = args[0].faces[k].value["u"][-1]
-            v__[1] = args[0].faces[k].value["v"][-1]
-            v__[2] = args[0].faces[k].value["w"][-1]
-            for l in args[0].faces[j].bound:
-                self.calcbound(args[0], l, i, j, v__, args[1])
+            v__[0] = mesh_.faces[k].value["u"][-1]
+            v__[1] = mesh_.faces[k].value["v"][-1]
+            v__[2] = mesh_.faces[k].value["w"][-1]
+            for l in mesh_.faces[j].bound:
+                self.calcbound(mesh_, l, i, j, v__, args[1])
         # conj
-        neigh__ = args[0].templates.neighbor["conj"].tocoo()
+        neigh__ = mesh_.templates.neighbor["conj"].tocoo()
         for i, j, k in zip(neigh__.row, neigh__.col, neigh__.data):
-            if "fluid" in args[0].cells[i].domain:
+            if "fluid" in mesh_.cells[i].domain:
                 fluid_id = i
                 solid_id = j
             else:
                 fluid_id = j
                 solid_id = j
             v__ = np.array([0.00, 0.00, 0.00], dtype = float)
-            v__[0] = args[0].faces[k].value["u"][-1]
-            v__[1] = args[0].faces[k].value["v"][-1]
-            v__[2] = args[0].faces[k].value["w"][-1]
-            Ret__ = args[0].faces[k].prop.rhs[-1] * pow(args[0].faces[k].value["k"][-1], 2) / \
-                    (args[0].faces[k].prop.miu[-1] * args[0].faces[k].value["e"][-1])
+            v__[0] = mesh_.faces[k].value["u"][-1]
+            v__[1] = mesh_.faces[k].value["v"][-1]
+            v__[2] = mesh_.faces[k].value["w"][-1]
+            Ret__ = mesh_.faces[k].prop.rhs[-1] * pow(mesh_.faces[k].value["k"][-1], 2) / \
+                    (mesh_.faces[k].prop.miu[-1] * mesh_.faces[k].value["e"][-1])
             cmiu__ = 0.09 * math.exp(-3.4 / pow(1 + Ret__/50, 2))
-            gradCfluid__ = args[0].cells[fluid_id].grad["T"][-1]
-            hb__ = args[0].cells[fluid_id].prop.rhs[-1] * args[0].cells[fluid_id].prop.cp[-1] * \
-                   pow(cmiu__, 0.25) * np.sqrt(args[0].cells[fluid_id].value["k"][-1]) / args[0].cells[args[2]].value["T"][-1]
-            graditr__  = super().linearitr(args[0], ["grad", "T"], i, j, k)
-            self.lhs[fluid_id][fluid_id] += hb__ * np.dot(args[0].geoms("eCF", fluid_id, solid_id, False), \
-                                               args[0].geoms("dCf", fluid_id, k, False)) * \
-                                               args[0].geoms("Sf", fluid_id, k, True) / args[0].geoms("dCF", \
+            gradCfluid__ = mesh_.cells[fluid_id].grad["T"][-1]
+            hb__ = mesh_.cells[fluid_id].prop.rhs[-1] * mesh_.cells[fluid_id].prop.cp[-1] * \
+                   pow(cmiu__, 0.25) * np.sqrt(mesh_.cells[fluid_id].value["k"][-1]) / mesh_.cells[args[2]].value["T"][-1]
+            graditr__  = super().linearitr(mesh_, ["grad", "T"], i, j, k)
+            self.lhs[fluid_id][fluid_id] += hb__ * np.dot(mesh_.geoms("eCF", fluid_id, solid_id, False), \
+                                               mesh_.geoms("dCf", fluid_id, k, False)) * \
+                                               mesh_.geoms("Sf", fluid_id, k, True) / mesh_.geoms("dCF", \
                                                fluid_id, solid_id, True)
-            self.lhs[solid_id][solid_id] += hb__ * np.dot(args[0].geoms("eCF", solid_id, fluid_id, False), \
-                                               args[0].geoms("dCf", solid_id, k, False)) * \
-                                               args[0].geoms("Sf", solid_id, k, True) / args[0].geoms("dCF", \
+            self.lhs[solid_id][solid_id] += hb__ * np.dot(mesh_.geoms("eCF", solid_id, fluid_id, False), \
+                                               mesh_.geoms("dCf", solid_id, k, False)) * \
+                                               mesh_.geoms("Sf", solid_id, k, True) / mesh_.geoms("dCF", \
                                                solid_id, fluid_id, True)
-            self.lhs[fluid_id][solid_id] += -hb__ * np.dot(args[0].geoms("eCF", fluid_id, solid_id, False), \
-                                               args[0].geoms("dCf", fluid_id, k, False)) * \
-                                               args[0].geoms("Sf", fluid_id, k, True) / args[0].geoms("dCF", \
+            self.lhs[fluid_id][solid_id] += -hb__ * np.dot(mesh_.geoms("eCF", fluid_id, solid_id, False), \
+                                               mesh_.geoms("dCf", fluid_id, k, False)) * \
+                                               mesh_.geoms("Sf", fluid_id, k, True) / mesh_.geoms("dCF", \
                                                fluid_id, solid_id, True)
-            self.lhs[solid_id][fluid_id] += -hb__ * np.dot(args[0].geoms("eCF", solid_id, fluid_id, False), \
-                                               args[0].geoms("dCf", solid_id, k, False)) * \
-                                               args[0].geoms("Sf", solid_id, k, True) / args[0].geoms("dCF", \
+            self.lhs[solid_id][fluid_id] += -hb__ * np.dot(mesh_.geoms("eCF", solid_id, fluid_id, False), \
+                                               mesh_.geoms("dCf", solid_id, k, False)) * \
+                                               mesh_.geoms("Sf", solid_id, k, True) / mesh_.geoms("dCF", \
                                                solid_id, fluid_id, True)
-            self.rhs[fluid_id][0] += hb__ * np.dot((graditr__ - np.dot(graditr__, args[0].geoms("eCF", \
-                                        fluid_id, solid_id, False)) * args[0].geoms("eCF", fluid_id, solid_id, False)), \
-                                        args[0].geoms("dCf", fluid_id, k, False))
-            self.rhs[solid_id][0] += -hb__ * np.dot((graditr__ - np.dot(graditr__, args[0].geoms("eCF", \
-                                        solid_id, fluid_id, False)) * args[0].geoms("eCF", solid_id, fluid_id, False)), \
-                                        args[0].geoms("dCf", solid_id, k, False))
+            self.rhs[fluid_id][0] += hb__ * np.dot((graditr__ - np.dot(graditr__, mesh_.geoms("eCF", \
+                                        fluid_id, solid_id, False)) * mesh_.geoms("eCF", fluid_id, solid_id, False)), \
+                                        mesh_.geoms("dCf", fluid_id, k, False))
+            self.rhs[solid_id][0] += -hb__ * np.dot((graditr__ - np.dot(graditr__, mesh_.geoms("eCF", \
+                                        solid_id, fluid_id, False)) * mesh_.geoms("eCF", solid_id, fluid_id, False)), \
+                                        mesh_.geoms("dCf", solid_id, k, False))
         return
     def calcbound(self, *args):
         # void
@@ -1732,136 +1882,136 @@ class energy(linear):
         if "hamb" in args[1]:
             Tamb__ = args[5].constants[0, "Tamb"]
             Tsky__ = 0.0552 * pow(Tamb__, 1.5)
-            hsky = 5.67 * pow(10, -8) * args[0].faces[args[3]].prop.eps[-1] * \
-                   (args[0].faces[args[3]].value["T"][-1] + Tsky__) * \
-                   (args[0].faces[args[3]].value["T"][-1]**2 + Tsky__**2) * \
-                   (args[0].faces[args[3]].value["T"][-1] - Tsky__) / \
-                   (args[0].faces[args[3]].value["T"][-1] - Tamb__) 
-            Tfilm__ = (args[0].faces[args[3]].value["T"][-1] + Tamb__) / 2
+            hsky = 5.67 * pow(10, -8) * mesh_.faces[args[3]].prop.eps[-1] * \
+                   (mesh_.faces[args[3]].value["T"][-1] + Tsky__) * \
+                   (mesh_.faces[args[3]].value["T"][-1]**2 + Tsky__**2) * \
+                   (mesh_.faces[args[3]].value["T"][-1] - Tsky__) / \
+                   (mesh_.faces[args[3]].value["T"][-1] - Tamb__) 
+            Tfilm__ = (mesh_.faces[args[3]].value["T"][-1] + Tamb__) / 2
             rho_film__ = 1 / HAPropsSI("Vha", "P", args[5].constants.loc[0, "Pamb"], "T", Tfilm__, "W", \
                          args[5].constants.loc[0, "Wamb"])
             miu_film__ = HAPropsSI("mu", "P", args[5].constants.loc[0, "Pamb"], "T", Tfilm__, "W", \
                        args[5].constants.loc[0, "Wamb"])
             alpha_film__ = HAPropsSI("alpha", "P", args[5].constants.loc[0, "Pamb"], "T", Tfilm__, "W", \
                            args[5].constants.loc[0, "Wamb"])
-            RaL__ = 9.81 * (args[0].faces[args[3]].value["T"][-1] - Tamb__) * \
-                    np.sqrt(args[0].faces[args[3]].area)**3 * rho_film__ / \
+            RaL__ = 9.81 * (mesh_.faces[args[3]].value["T"][-1] - Tamb__) * \
+                    np.sqrt(mesh_.faces[args[3]].area)**3 * rho_film__ / \
                     (Tfilm__ * miu_film__ * alpha_film__)   
             if RaL__ <= pow(10, 7):
                 Nu_N__ = 0.54 * pow(RaL__, 0.25)
             else:
                 Nu_N__ = 0.15 * pow(RaL__, 1/3)
-            hconv = Nu_N__ * args[0].faces[args[3]].prop.k[-1] / np.sqrt(args[0].faces[args[3]].area)         
-            self.rhs[args[2]][0] += -(hsky + hconv) * (args[0].faces[args[3]].value["T"][-1] - Tamb__) \
-                                             * args[0].geoms("Sf", args[2], args[3], True)
+            hconv = Nu_N__ * mesh_.faces[args[3]].prop.k[-1] / np.sqrt(mesh_.faces[args[3]].area)         
+            self.rhs[args[2]][0] += -(hsky + hconv) * (mesh_.faces[args[3]].value["T"][-1] - Tamb__) \
+                                             * mesh_.geoms("Sf", args[2], args[3], True)
         elif "s2s" in args[1]:
             # von Neumann
-            self.rhs[args[2]][0] += -args[0].clusts[int(args[1][-1])].value["q"][-1] * \
-                                       args[0].geoms("Sf", args[2], args[3], True)
+            self.rhs[args[2]][0] += -mesh_.clusts[int(args[1][-1])].value["q"][-1] * \
+                                       mesh_.geoms("Sf", args[2], args[3], True)
         elif "inlet" in args[1]:
             # specified value; zero gradient at inlet
-            Sf__ = args[0].geoms("Sf", args[2], args[3], False)
-            eCf__ = args[0].geoms("eCf", args[2], args[3], False)
-            dCf__ = args[0].geoms("dCf", args[2], args[3], False)
-            grad_vin_v0_ = np.dot(args[0].cells[args[2]].grad["u"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["u"][-1], eCf__) * eCf__))
-            grad_vin_v1_ = np.dot(args[0].cells[args[2]].grad["v"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["v"][-1], eCf__) * eCf__))
-            grad_vin_v2_ = np.dot(args[0].cells[args[2]].grad["w"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["w"][-1], eCf__) * eCf__))
-            vin_v0_ = args[0].cells[args[2]].value["u"][-1] + np.dot(grad_vin_v0_, dCf__)
-            vin_v1_ = args[0].cells[args[2]].value["v"][-1] + np.dot(grad_vin_v1_, dCf__)
-            vin_v2_ = args[0].cells[args[2]].value["w"][-1] + np.dot(grad_vin_v2_, dCf__)
+            Sf__ = mesh_.geoms("Sf", args[2], args[3], False)
+            eCf__ = mesh_.geoms("eCf", args[2], args[3], False)
+            dCf__ = mesh_.geoms("dCf", args[2], args[3], False)
+            grad_vin_v0_ = np.dot(mesh_.cells[args[2]].grad["u"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["u"][-1], eCf__) * eCf__))
+            grad_vin_v1_ = np.dot(mesh_.cells[args[2]].grad["v"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["v"][-1], eCf__) * eCf__))
+            grad_vin_v2_ = np.dot(mesh_.cells[args[2]].grad["w"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["w"][-1], eCf__) * eCf__))
+            vin_v0_ = mesh_.cells[args[2]].value["u"][-1] + np.dot(grad_vin_v0_, dCf__)
+            vin_v1_ = mesh_.cells[args[2]].value["v"][-1] + np.dot(grad_vin_v1_, dCf__)
+            vin_v2_ = mesh_.cells[args[2]].value["w"][-1] + np.dot(grad_vin_v2_, dCf__)
             vin__ = np.array([vin_v0_, vin_v1_, vin_v2_], dtype = float)
-            grad_Tin_ = np.dot(args[0].cells[args[2]].grad["T"][-1] - \
-                         (np.dot(args[0].cells[args[2]].grad["T"][-1], eCf__) * eCf__))
-            Tin_ = pow(0.5 * np.dot(vin__, vin__) * 0.01**2, 1.5) * 0.09 / (0.1 * args[0].cells[args[2]].volume)
-            self.rhs[args[2]][0] += -args[0].faces[args[3]].prop.rhs[-1] * np.dot(vin__, Sf__) * Tin_
-            self.rhs[args[2]][0] += -args[0].faces[args[3]].prop.rhs[-1] * np.dot(vin__, Sf__) * np.dot(grad_Tin_, dCf__)
+            grad_Tin_ = np.dot(mesh_.cells[args[2]].grad["T"][-1] - \
+                         (np.dot(mesh_.cells[args[2]].grad["T"][-1], eCf__) * eCf__))
+            Tin_ = pow(0.5 * np.dot(vin__, vin__) * 0.01**2, 1.5) * 0.09 / (0.1 * mesh_.cells[args[2]].volume)
+            self.rhs[args[2]][0] += -mesh_.faces[args[3]].prop.rhs[-1] * np.dot(vin__, Sf__) * Tin_
+            self.rhs[args[2]][0] += -mesh_.faces[args[3]].prop.rhs[-1] * np.dot(vin__, Sf__) * np.dot(grad_Tin_, dCf__)
         elif "outlet" in args[1]:
             # fully developed flow; zero gradient at outlet
-            Sf__ = args[0].geoms("Sf", args[2], args[3], False)
-            eCf__ = args[0].geoms("eCf", args[2], args[3], False)
-            dCf__ = args[0].geoms("dCf", args[2], args[3], False)
-            grad_vout_v0_ = np.dot(args[0].cells[args[2]].grad["u"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["u"][-1], eCf__) * eCf__))
-            grad_vout_v1_ = np.dot(args[0].cells[args[2]].grad["v"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["v"][-1], eCf__) * eCf__))
-            grad_vout_v2_ = np.dot(args[0].cells[args[2]].grad["w"][-1] - \
-                          (np.dot(args[0].cells[args[2]].grad["w"][-1], eCf__) * eCf__))
-            vout_v0_ = args[0].cells[args[2]].value["u"][-1] + np.dot(grad_vout_v0_, dCf__)
-            vout_v1_ = args[0].cells[args[2]].value["v"][-1] + np.dot(grad_vout_v1_, dCf__)
-            vout_v2_ = args[0].cells[args[2]].value["w"][-1] + np.dot(grad_vout_v2_, dCf__)
+            Sf__ = mesh_.geoms("Sf", args[2], args[3], False)
+            eCf__ = mesh_.geoms("eCf", args[2], args[3], False)
+            dCf__ = mesh_.geoms("dCf", args[2], args[3], False)
+            grad_vout_v0_ = np.dot(mesh_.cells[args[2]].grad["u"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["u"][-1], eCf__) * eCf__))
+            grad_vout_v1_ = np.dot(mesh_.cells[args[2]].grad["v"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["v"][-1], eCf__) * eCf__))
+            grad_vout_v2_ = np.dot(mesh_.cells[args[2]].grad["w"][-1] - \
+                          (np.dot(mesh_.cells[args[2]].grad["w"][-1], eCf__) * eCf__))
+            vout_v0_ = mesh_.cells[args[2]].value["u"][-1] + np.dot(grad_vout_v0_, dCf__)
+            vout_v1_ = mesh_.cells[args[2]].value["v"][-1] + np.dot(grad_vout_v1_, dCf__)
+            vout_v2_ = mesh_.cells[args[2]].value["w"][-1] + np.dot(grad_vout_v2_, dCf__)
             vout__ = np.array([vout_v0_, vout_v1_, vout_v2_], dtype = float)
-            grad_Tout_ = np.dot(args[0].cells[args[2]].grad["e"][-1] - \
-                         (np.dot(args[0].cells[args[2]].grad["e"][-1], eCf__) * eCf__))
-            self.lhs[args[2]][args[2]] += args[0].faces[args[3]].prop.rhs[-1] * np.dot(vout__, Sf__)
-            self.rhs[args[2]][0] += -args[0].faces[args[3]].prop.rhs[-1] * np.dot(vout__, Sf__) * np.dot(grad_Tout_, dCf__)
+            grad_Tout_ = np.dot(mesh_.cells[args[2]].grad["e"][-1] - \
+                         (np.dot(mesh_.cells[args[2]].grad["e"][-1], eCf__) * eCf__))
+            self.lhs[args[2]][args[2]] += mesh_.faces[args[3]].prop.rhs[-1] * np.dot(vout__, Sf__)
+            self.rhs[args[2]][0] += -mesh_.faces[args[3]].prop.rhs[-1] * np.dot(vout__, Sf__) * np.dot(grad_Tout_, dCf__)
         else:
             pass
         return
     def calcwall(self, *args):
         # args mesh : mesh
-        for i in args[0].cells.keys():
-            if args[0].cells[i].conj_id >= 0:
+        for i in mesh_.cells.keys():
+            if mesh_.cells[i].conj_id >= 0:
                 v__ = np.array([0.00, 0.00, 0.00], dtype = float)
-                v__[0] = args[0].cells[i].value["u"][-1]
-                v__[1] = args[0].cells[i].value["v"][-1]
-                v__[2] = args[0].cells[i].value["w"][-1]
+                v__[0] = mesh_.cells[i].value["u"][-1]
+                v__[1] = mesh_.cells[i].value["v"][-1]
+                v__[2] = mesh_.cells[i].value["w"][-1]
                 v_val_ = np.sqrt(np.sum(np.array([map(lambda x: x^2, v__)])))
-                Ret__ = args[0].cells[i].prop.rhs[-1] * pow(args[0].cells[i].value["k"][-1], 2) / \
-                        (args[0].cells[i].prop.miu[-1] * args[0].cells[i].value["e"][-1])
+                Ret__ = mesh_.cells[i].prop.rhs[-1] * pow(mesh_.cells[i].value["k"][-1], 2) / \
+                        (mesh_.cells[i].prop.miu[-1] * mesh_.cells[i].value["e"][-1])
                 cmiu__ = 0.09 * math.exp(-3.4 / pow(1 + Ret__/50, 2))
-                gradCfluid__ = args[0].cells[i].grad["T"][-1]
-                dperp__ = (np.sqrt(2 * args[0].cells[i].value["T"][-1]) - 1) * \
+                gradCfluid__ = mesh_.cells[i].grad["T"][-1]
+                dperp__ = (np.sqrt(2 * mesh_.cells[i].value["T"][-1]) - 1) * \
                             np.sqrt(gradCfluid__[0]**2 + gradCfluid__[1]**2 + gradCfluid__[2]**2)
-                dCplus__ = dperp__ * pow(cmiu__, 0.25) * np.sqrt(args[0].cells[i].value["k"][-1]) * \
-                            args[0].cells[i].prop.rhs[-1] / args[0].cells[i].prop.miu[-1]
+                dCplus__ = dperp__ * pow(cmiu__, 0.25) * np.sqrt(mesh_.cells[i].value["k"][-1]) * \
+                            mesh_.cells[i].prop.rhs[-1] / mesh_.cells[i].prop.miu[-1]
                 dCplus__ = np.max(np.array([dCplus__, 11.06]))
                 miutau__ = v_val_ * 0.41 / (np.log(dCplus__) + 5.25)
-                dplusT__ = dperp__ * miutau__ * args[0].cells[i].prop.rhs[-1] / \
-                            args[0].cells[i].prop.miu[-1]
-                Pr__ = args[0].cells[i].prop.miu[-1] / (args[0].cells[i].prop.rhs[-1] \
-                        * args[0].cells[i].prop.alpha[-1])
+                dplusT__ = dperp__ * miutau__ * mesh_.cells[i].prop.rhs[-1] / \
+                            mesh_.cells[i].prop.miu[-1]
+                Pr__ = mesh_.cells[i].prop.miu[-1] / (mesh_.cells[i].prop.rhs[-1] \
+                        * mesh_.cells[i].prop.alpha[-1])
                 beta__ = pow(3.85 * pow(Pr__, 1/3) - 1.3, 2) + 2.12 * np.log(Pr__)
                 Tplus__ = 2.12 * np.log(dplusT__) + beta__ * Pr__
-                args[0].cells[i].value["T"][-1] = Tplus__
+                mesh_.cells[i].value["T"][-1] = Tplus__
         return
     def itersolve(self, *args):
         # GMRES
         # args mesh : mesh, under_relax : double, tol : double, max_iter : int, time_step : float, user : user, current_time : int
         # args mesh : mesh, user : user, what : str, time_step : int/double
-        self.calccoef(args[0], args[5], "T", args[4])
-        lhs_transient, rhs_transient = super().calctransient(args[0], "T", args[4], args[6])
+        self.calccoef(mesh_, args[5], "T", args[4])
+        lhs_transient, rhs_transient = super().calctransient(mesh_, "T", args[4], args[6])
         for i in range(0, lhs_transient.shape[0]):
             lhs_transient[i][i] = lhs_transient[i][i] / args[1]
         A = lambda x: sparse.linalg.spsolve(lhs_transient, x)
-        under_relax_b = np.transpose(np.array([[lhs_transient[i][i] * args[0].cells[i].value["T"][-1] * (1 - args[1]) \
+        under_relax_b = np.transpose(np.array([[lhs_transient[i][i] * mesh_.cells[i].value["T"][-1] * (1 - args[1]) \
                         for i in range(0, lhs_transient.shape[0])]]))
         b = self.rhs + under_relax_b
         x, exitCode = sparse.linalg.gmres(A, b, tol = args[2], maxiter = args[3])
-        prev_x = np.array([args[0].cells[i].value["T"]][-1] for i in args[0].cells.keys())
+        prev_x = np.array([mesh_.cells[i].value["T"]][-1] for i in mesh_.cells.keys())
         rmsr__ = super().calcrmsr(np.flatten(x), prev_x)
         print("{} [{}]; status: {}, prev. value RMSR = {}".format("T", self.current_time, exitCode, rmsr__))
         # update value and grad
-        self.updatevalue(args[0], "T", np.flatten(x))
-        self.calcwall(args[0])
-        for i in args[0].cells.keys():
-            if "rho" in dir(args[0].cells[i].prop):
-                args[0].cells[i].prop.updateprop(args[0].cells[i].value["P"][-1], args[0].cells[i].value["T"][-1], args[5].constants.loc[0, "Wamb"])
-        for i in args[0].faces.keys():
-            if "rho" in dir(args[0].faces[i].prop):
-                args[0].faces[i].prop.updateprop(args[0].faces[i].value["P"][-1], args[0].faces[i].value["T"][-1], args[5].constants.loc[0, "Wamb"])
+        self.updatevalue(mesh_, "T", np.flatten(x))
+        self.calcwall(mesh_)
+        for i in mesh_.cells.keys():
+            if "rho" in dir(mesh_.cells[i].prop):
+                mesh_.cells[i].prop.updateprop(mesh_.cells[i].value["P"][-1], mesh_.cells[i].value["T"][-1], args[5].constants.loc[0, "Wamb"])
+        for i in mesh_.faces.keys():
+            if "rho" in dir(mesh_.faces[i].prop):
+                mesh_.faces[i].prop.updateprop(mesh_.faces[i].value["P"][-1], mesh_.faces[i].value["T"][-1], args[5].constants.loc[0, "Wamb"])
         return rmsr__
 
 class s2s(linear):
     def __init__(self, *args):
-        super().__init__(args[0], what = "s2s")
+        super().__init__(mesh_, what = "s2s")
     def calccoef(self, *args):
         # args mesh : mesh, time_step : int/double
         # s2s only
         prev_row = 0
-        neigh__ = args[0].templates.neighbor["s2s"].tocoo()
+        neigh__ = mesh_.templates.neighbor["s2s"].tocoo()
         for i, j, k in zip(neigh__.row, neigh__.col, neigh__.data):
             if prev_row == i:
                 Tclust_C__ = 0.00
@@ -1869,16 +2019,16 @@ class s2s(linear):
                 area_clust_C__ = 0.00
                 area_clust_F__ = 0.00
                 eps_clust_C__ = 0.0
-                for l in args[0].clusts[i].member:
-                    Tclust_C__ += args[0].faces[l].value["T"][-1] * args[0].faces[l].area
-                    area_clust_C__ +=  args[0].faces[l].area
-                    eps_clust_C__ = args[0].faces[l].prop.eps[-1]
-                for l in args[0].clusts[j].member:
-                    rho_clust_F__ += args[0].faces[l].prop.rhs[-1] * args[0].faces[l].area
-                    area_clust_F__ += args[0].faces[l].area
+                for l in mesh_.clusts[i].member:
+                    Tclust_C__ += mesh_.faces[l].value["T"][-1] * mesh_.faces[l].area
+                    area_clust_C__ +=  mesh_.faces[l].area
+                    eps_clust_C__ = mesh_.faces[l].prop.eps[-1]
+                for l in mesh_.clusts[j].member:
+                    rho_clust_F__ += mesh_.faces[l].prop.rhs[-1] * mesh_.faces[l].area
+                    area_clust_F__ += mesh_.faces[l].area
                 Tclust_C__ = Tclust_C__ / area_clust_C__
                 rho_clust_F__ = rho_clust_F__ / area_clust_F__
-                self.lhs[i][j] = rho_clust_F__ * args[0].geoms("view", i, j)
+                self.lhs[i][j] = rho_clust_F__ * mesh_.geoms("view", i, j)
                 prev_row = i
             else:
                 self.lhs[prev_row][prev_row] = 1
@@ -1888,16 +2038,16 @@ class s2s(linear):
                 area_clust_C__ = 0.00
                 area_clust_F__ = 0.00
                 eps_clust_C__ = 0.0
-                for l in args[0].clusts[i].member:
-                    Tclust_C__ += args[0].faces[l].value["T"][-1] * args[0].faces[l].area
-                    area_clust_C__ +=  args[0].faces[l].area
-                    eps_clust_C__ = args[0].faces[l].prop.eps[-1]
-                for l in args[0].clusts[j].member:
-                    rho_clust_F__ += args[0].faces[l].prop.rhs[-1] * args[0].faces[l].area
-                    area_clust_F__ += args[0].faces[l].area
+                for l in mesh_.clusts[i].member:
+                    Tclust_C__ += mesh_.faces[l].value["T"][-1] * mesh_.faces[l].area
+                    area_clust_C__ +=  mesh_.faces[l].area
+                    eps_clust_C__ = mesh_.faces[l].prop.eps[-1]
+                for l in mesh_.clusts[j].member:
+                    rho_clust_F__ += mesh_.faces[l].prop.rhs[-1] * mesh_.faces[l].area
+                    area_clust_F__ += mesh_.faces[l].area
                 Tclust_C__ = Tclust_C__ / area_clust_C__
                 rho_clust_F__ = rho_clust_F__ / area_clust_F__
-                self.lhs[i][j] = rho_clust_F__ * args[0].geoms("view", i, j)
+                self.lhs[i][j] = rho_clust_F__ * mesh_.geoms("view", i, j)
                 prev_row = i
         self.lhs[prev_row][prev_row] = 1
         self.rhs[prev_row][0] = eps_clust_C__ * 5.67 * pow(10, -8) * pow(Tclust_C__, 4)
@@ -1906,18 +2056,18 @@ class s2s(linear):
         # GMRES
         # args mesh : mesh, under_relax : double, tol : double, max_iter : int, time_step : float, user : user
         # args mesh : mesh, user : user, what : str, time_step : int/double
-        self.calccoef(args[0], args[5], "q", args[4])
+        self.calccoef(mesh_, args[5], "q", args[4])
         lhs__ = self.lhs; rhs__ = self.rhs
         for i in range(0, lhs__.shape[0]):
             self.lhs__[i][i] = lhs__[i][i] / args[1]
         A = lambda x: sparse.linalg.spsolve(lhs__, x)
-        under_relax_b = np.transpose(np.array([[lhs__[i][i] * args[0].cells[i].value["q"][-1] * (1 - args[1]) \
+        under_relax_b = np.transpose(np.array([[lhs__[i][i] * mesh_.cells[i].value["q"][-1] * (1 - args[1]) \
                         for i in range(0, lhs__.shape[0])]]))
         b = rhs__ + under_relax_b
         x, exitCode = sparse.linalg.gmres(A, b, tol = args[2], maxiter = args[3])
-        prev_x = np.array([args[0].cells[i].value["q"]][-1] for i in args[0].cells.keys())
+        prev_x = np.array([mesh_.cells[i].value["q"]][-1] for i in mesh_.cells.keys())
         rmsr__ = super().calcrmsr(np.flatten(x), prev_x)
         print("{} [{}]; status: {}, prev. value RMSR = {}".format("q", self.current_time, exitCode, rmsr__))
         # update value and grad
-        self.updatevalue(args[0], "q", np.flatten(x))
+        self.updatevalue(mesh_, "q", np.flatten(x))
         return rmsr__
