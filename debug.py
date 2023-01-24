@@ -573,7 +573,6 @@ from numpy import linalg
 import scipy.sparse as sparse
 from CoolProp.HumidAirProp import HAPropsSI
 # import mpi4py
-# import cfd_scheme
 
 class user:
     def __init__(self, *args):
@@ -661,7 +660,7 @@ class value:
         dCf1_ = mesh_.geoms.dCf(True, [id_[0], id_[2]]); dCf2_ = mesh_.geoms.dCf(True, [id_[1], id_[2]])
         gC_ = dCf1_ / (dCf1_ + dCf2_)
         return gC_ * self.cells(which, what)[id_[0]][1] + (1 - gC_) * self.cells(which, what)[id_[1]][1]
-    def interoplate_grad(self, mesh_ : mesh, id_ : list, what : str):
+    def interpolate_grad(self, mesh_ : mesh, id_ : list, what : str):
         # id [cell 1 id, cell 2 id, face id]
         # face grad interpolation
         # current grad only
@@ -821,6 +820,7 @@ class linear:
 class pcorrect(linear):
     def __init__(self, mesh_ : mesh):
         super().__init__(mesh_, what = ["fluid"])
+
     def calc_coef(self, mesh_ : mesh, user_ : user, value_ : value, u_ref, v_ref, w_ref):
         aC_ = Decimal(0)
         bC_ = Decimal(0)
@@ -897,9 +897,7 @@ class pcorrect(linear):
         lhs_transient_, rhs_transient_ = super().calc_transient(mesh_, user_, value_, "Pcor", time_step_, current_time_)
         under_relax_b = deepcopy(rhs_transient_)
         for it1 in range(0, lhs_transient_.shape[0]):
-            lhs_transient_[it1, it1] = lhs_transient_[it1, it1] / under_relax_
-        for it1 in range(0, rhs_transient_.shape[0]):
-            under_relax_b[it1, 0] = lhs_transient_[it1, it1] * value_.cells("unit", "Pcor")[it1][1] * (1 - under_relax_)
+            lhs_transient_[it1, it1] = lhs_transient_[it1, it1] / under_relax_; under_relax_b[it1, 0] = lhs_transient_[it1, it1] * value_.cells("unit", "Pcor")[it1][1] * (1 - under_relax_)
         A = lambda x: sparse.linalg.spsolve(lhs_transient_, x)
         b = rhs_transient_ + under_relax_b
         x, exitCode = sparse.linalg.gmres(A, b, tol = tol_, maxiter = max_iter_)
@@ -1079,23 +1077,26 @@ class momentum(linear):
                     value_.cells("unit", coor_dict[self.axis], it1, vplus_)   
         else:
             pass
-    def iter_solve(self, mesh_ : mesh, user_ : user, value_ : value, under_relax_, tol_, max_iter_, time_step_, current_time_):
-        coor_dict = dict({0: "u", 1: "v", 2: "w"})
-        what = coor_dict[self.axis]
-        self.calc_coef(mesh_, user_, value_)
-        lhs_transient_, rhs_transient_ = super().calc_transient(mesh_, user_, value_, what, time_step_, current_time_)
-        under_relax_b = deepcopy(rhs_transient_)
-        for it1 in range(0, lhs_transient_.shape[0]):
-            lhs_transient_[it1, it1] = lhs_transient_[it1, it1] / under_relax_
-        for it1 in range(0, rhs_transient_.shape[0]):
-            under_relax_b[it1, 0] = lhs_transient_[it1, it1] * value_.cells("unit", what)[it1][1] * (1 - under_relax_)
-        A = lambda x: sparse.linalg.spsolve(lhs_transient_, x)
-        b = rhs_transient_ + under_relax_b
-        x, exitCode = sparse.linalg.gmres(A, b, tol = tol_, maxiter = max_iter_)
-        value_.update_value(mesh_, what, np.transpose(x)[0])
-        self.calc_wall(mesh_, user_, value_)
-        rmsr_ = value_.calc_rmsr(what)
-        return rmsr_
+    @staticmethod
+    def iter_solve(mesh_ : mesh, user_ : user, value_ : value, under_relax_, tol_, max_iter_, time_step_, current_time_, u_ref, v_ref, w_ref):
+        u_ref.calc_coef(mesh_, user_, value_)
+        v_ref.calc_coef(mesh_, user_, value_)
+        w_ref.calc_coef(mesh_, user_, value_)
+        lhs_transient_u, rhs_transient_u = super().calc_transient(mesh_, user_, value_, "u", time_step_, current_time_)
+        lhs_transient_v, rhs_transient_v = super().calc_transient(mesh_, user_, value_, "v", time_step_, current_time_)
+        lhs_transient_w, rhs_transient_w = super().calc_transient(mesh_, user_, value_, "w", time_step_, current_time_)
+        under_relax_b_u = deepcopy(rhs_transient_u); under_relax_b_v = deepcopy(rhs_transient_v); under_relax_b_w = deepcopy(rhs_transient_w)
+        for it1 in range(0, lhs_transient_u.shape[0]):
+            lhs_transient_u[it1, it1] = lhs_transient_u[it1, it1] / under_relax_; under_relax_b_u[it1, 0] = lhs_transient_u[it1, it1] * value_.cells("unit", "u")[it1][1] * (1 - under_relax_)
+            lhs_transient_v[it1, it1] = lhs_transient_v[it1, it1] / under_relax_; under_relax_b_v[it1, 0] = lhs_transient_v[it1, it1] * value_.cells("unit", "v")[it1][1] * (1 - under_relax_)
+            lhs_transient_w[it1, it1] = lhs_transient_w[it1, it1] / under_relax_; under_relax_b_w[it1, 0] = lhs_transient_w[it1, it1] * value_.cells("unit", "w")[it1][1] * (1 - under_relax_)
+        A_u = lambda x_u: sparse.linalg.spsolve(lhs_transient_u, x_u); A_v = lambda x_v: sparse.linalg.spsolve(lhs_transient_v, x_v); A_w = lambda x_w: sparse.linalg.spsolve(lhs_transient_w, x_w) 
+        b_u = rhs_transient_u + under_relax_b_u; b_v = rhs_transient_v + under_relax_b_v; b_w = rhs_transient_w + under_relax_b_w
+        x_u, exitCode = sparse.linalg.gmres(A_u, b_u, tol = tol_, maxiter = max_iter_); x_v, exitCode = sparse.linalg.gmres(A_v, b_v, tol = tol_, maxiter = max_iter_); x_w, exitCode = sparse.linalg.gmres(A_w, b_w, tol = tol_, maxiter = max_iter_)
+        value_.update_value(mesh_, "u", np.transpose(x_u)[0]); value_.update_value(mesh_, "v", np.transpose(x_v)[0]); value_.update_value(mesh_, "w", np.transpose(x_w)[0])
+        u_ref.calc_wall(mesh_, user_, value_); w_ref.calc_wall(mesh_, user_, value_)
+        rmsr_u = value_.calc_rmsr("u"); rmsr_v = value_.calc_rmsr("v"); rmsr_w = value_.calc_rmsr("w")
+        return rmsr_u, rmsr_v. rmsr_w
 class turb_k(linear):
     def __init__(self, mesh_ : mesh):
         # args mesh : mesh
@@ -1236,21 +1237,6 @@ class turb_k(linear):
                     value_.cells("unit", "k", it1, 1 / np.sqrt(cmiu_C_))
         else:
             pass
-    def iter_solve(self, mesh_ : mesh, user_ : user, value_ : value, under_relax_, tol_, max_iter_, time_step_, current_time_):
-        self.calc_coef(mesh_, user_, value_)
-        lhs_transient_, rhs_transient_ = super().calc_transient(mesh_, user_, value_, "k", time_step_, current_time_)
-        under_relax_b = deepcopy(rhs_transient_)
-        for it1 in range(0, lhs_transient_.shape[0]):
-            lhs_transient_[it1, it1] = lhs_transient_[it1, it1] / under_relax_
-        for it1 in range(0, rhs_transient_.shape[0]):
-            under_relax_b[it1, 0] = lhs_transient_[it1, it1] * value_.cells("unit", "k")[it1][1] * (1 - under_relax_)
-        A = lambda x: sparse.linalg.spsolve(lhs_transient_, x)
-        b = rhs_transient_ + under_relax_b
-        x, exitCode = sparse.linalg.gmres(A, b, tol = tol_, maxiter = max_iter_)
-        value_.update_value(mesh_, "k", np.transpose(x)[0])
-        self.calc_wall(mesh_, user_, value_)
-        rmsr_ = value_.calc_rmsr("k")
-        return rmsr_
 class turb_e(linear):
     def __init__(self, mesh_ : mesh):
         # args mesh : mesh
@@ -1405,21 +1391,25 @@ class turb_e(linear):
                     value_.cells("unit", "e", it1, eplus_) 
         else:
             pass
-    def iter_solve(self, mesh_ : mesh, user_ : user, value_ : value, under_relax_, tol_, max_iter_, time_step_, current_time_):
-        self.calc_coef(mesh_, user_, value_)
-        lhs_transient_, rhs_transient_ = super().calc_transient(mesh_, user_, value_, "e", time_step_, current_time_)
-        under_relax_b = deepcopy(rhs_transient_)
-        for it1 in range(0, lhs_transient_.shape[0]):
-            lhs_transient_[it1, it1] = lhs_transient_[it1, it1] / under_relax_
-        for it1 in range(0, rhs_transient_.shape[0]):
-            under_relax_b[it1, 0] = lhs_transient_[it1, it1] * value_.cells("unit", "e")[it1][1] * (1 - under_relax_)
-        A = lambda x: sparse.linalg.spsolve(lhs_transient_, x)
-        b = rhs_transient_ + under_relax_b
-        x, exitCode = sparse.linalg.gmres(A, b, tol = tol_, maxiter = max_iter_)
-        value_.update_value(mesh_, "e", np.transpose(x)[0])
-        self.calc_wall(mesh_, user_, value_)
-        rmsr_ = value_.calc_rmsr("e")
-        return rmsr_
+class turb(linear):
+    def __init__(self):
+        pass
+    
+    @staticmethod
+    def iter_solve(mesh_ : mesh, user_ : user, value_ : value, under_relax_, tol_, max_iter_, time_step_, current_time_, k_ref, e_ref):
+        k_ref.calc_coef(mesh_, user_, value_); e_ref.calc_coef(mesh_, user_, value_)
+        lhs_transient_k, rhs_transient_k = super().calc_transient(mesh_, user_, value_, "k", time_step_, current_time_); lhs_transient_e, rhs_transient_e = super().calc_transient(mesh_, user_, value_, "e", time_step_, current_time_)
+        under_relax_b_k = deepcopy(rhs_transient_k); under_relax_b_e = deepcopy(rhs_transient_e)
+        for it1 in range(0, lhs_transient_k.shape[0]):
+            lhs_transient_k[it1, it1] = lhs_transient_k[it1, it1] / under_relax_; under_relax_b_k[it1, 0] = lhs_transient_k[it1, it1] * value_.cells("unit", "k")[it1][1] * (1 - under_relax_)
+            lhs_transient_e[it1, it1] = lhs_transient_e[it1, it1] / under_relax_; under_relax_b_e[it1, 0] = lhs_transient_e[it1, it1] * value_.cells("unit", "e")[it1][1] * (1 - under_relax_)
+        A_k = lambda x_k: sparse.linalg.spsolve(lhs_transient_k, x_k); A_e = lambda x_e: sparse.linalg.spsolve(lhs_transient_e, x_e)
+        b_k = rhs_transient_k + under_relax_b_k; b_e = rhs_transient_e + under_relax_b_e
+        x_k, exitCode = sparse.linalg.gmres(A_k, b_k, tol = tol_, maxiter = max_iter_); x_e, exitCode = sparse.linalg.gmres(A_e, b_e, tol = tol_, maxiter = max_iter_)
+        value_.update_value(mesh_, "k", np.transpose(x_k)[0]); value_.update_value(mesh_, "e", np.transpose(x_e)[0])
+        k_ref.calc_wall(mesh_, user_, value_); e_ref.calc_wall(mesh_, user_, value_)
+        rmsr_k = value_.calc_rmsr("k"); rmsr_e = value_.calc_rmsr("e")
+        return rmsr_k, rmsr_e
 class energy(linear):
     def __init__(self, mesh_ : mesh):
         what_ = [it1 for it1 in list(mesh_.templates.cc.keys()) if it1 != "s2s"]
@@ -1726,7 +1716,7 @@ class s2s(linear):
         for it1 in range(0, new_val_.shape[0]):
             for it2 in mesh_.clusts[it1].faces():
                 value_.faces("unit", "q", it2, new_val_[it1])
-    def iter_solve(self, mesh_ : mesh, user_ : user, value_ : value, under_relax_, tol_, max_iter_, time_step_, current_time_):
+    def iter_solve(self, mesh_ : mesh, user_ : user, value_ : value, tol_, max_iter_):
         self.calc_coef(mesh_, user_, value_)
         A = lambda x: sparse.linalg.spsolve(self.lhs, x)
         b = self.rhs
@@ -1734,7 +1724,7 @@ class s2s(linear):
         self.update_source(mesh_, value_, np.transpose(x)[0])
         return 0
 
-##### cfd_solver #########
+##### cfd solver #########
 class result:
     def __init__(self):
         self.__eq = dict({"P": [], "u": [], "v": [], "w": [], "k": [], "e": [], "T": []})
@@ -1801,52 +1791,56 @@ class solver:
         return self.__current_time
     @current_time.setter
     def current_time(self, new_time : bool):
-        self.__current_time += 1
+        if new_time is True:
+            self.__current_time += 1
     
-    def energy_s2s_loop(self):
-        # stop condition -> both equations return rmsr value < tol
+    def energy_s2s_loop(self, mesh_ : mesh, user_ : user, value_ : value, result_ : result):
+        # stop condition -> all equations return rmsr value < tol
         passes = 0
-        check = [False, False]
+        check = [False]
         while all(check) is False:
-            # args mesh : mesh, under_relax : double, tol : double, max_iter : int, time_step : float, user : user
-            rmsr_t__ = self.eq["T"].iter_solve(self.eq["T"], self.under_relax, self.tol, self.max_iter, self.time_step, self.__user, self.__current_time)
-            rmsr_q__ = self.eq["q"].iter_solve(self.eq["q"], self.under_relax, self.tol, self.max_iter, self.time_step, self.__current_time)
-            self.__res_loop["T"].extend(rmsr_t__); self.__res_loop["q"].extend(rmsr_q__)
-            check = [i < self.__tol for i in [rmsr_t__, rmsr_q__]]
+            if passes > self.max_loop:
+                return passes
+            _ = self.eq["s2s"].iter_solve(mesh_, user_, value_, self.tol, self.max_iter)
+            rmsr_t_ = self.eq["T"].iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time)
+            result_.res_loop("T", rmsr_t_)
+            check[0] = rmsr_t_ < self.tol
             passes += 1
         return passes
-    def SIMPLEloop(self):
+    def SIMPLE_loop(self, mesh_ : mesh, user_ : user, value_ : value, result_ : result):
         # stop condition -> all equations return rmsr value < tol
         passes = 0
         check = [False, False, False, False]
         while all(check) is False:
-            # args mesh : mesh, under_relax : double, tol : double, max_iter : int, time_step : float, user : user
-            rmsr_u__ = self.__eq["u"].itersolve(self.__eq["u"], self.__under_relax, self.__tol, self.__max_iter, self.__time_step, self.__user, self.__current_time)
-            rmsr_v__ = self.__eq["v"].itersolve(self.__eq["u"], self.__under_relax, self.__tol, self.__max_iter, self.__time_step, self.__user, self.__current_time)
-            rmsr_w__ = self.__eq["w"].itersolve(self.__eq["u"], self.__under_relax, self.__tol, self.__max_iter, self.__time_step, self.__user, self.__current_time)
-            # args mesh : mesh, under_relax : double, tol : double, max_iter : int, time_step : float, u :momentum, v : momentum, w : momentum
-            rmsr_pcor__ = self.__eq["Pcor"].itersolve(self.__eq["Pcor"], self.__under_relax, self.__tol, self.__max_iter, \
-                                        self.__time_step, self.__eq["u"], self.__eq["v"], self.__eq["w"], self.__current_time)
-            self.__res_loop["u"].extend(rmsr_u__); self.__res_loop["v"].extend(rmsr_v__); self.__res_loop["w"].extend(rmsr_w__)
-            self.__res_loop["Pcor"].extend(rmsr_pcor__)
-            check = [i < self.__tol for i in [rmsr_u__, rmsr_v__, rmsr_w__, rmsr_pcor__]]
+            if passes > self.max_loop:
+                return passes
+            rmsr_u_, rmsr_v_, rmsr_w_ = self.eq["u"].iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time, self.eq["u"], self.eq["v"], self.eq["w"])
+            rmsr_p_ = self.eq["Pcor"].itersolve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time, self.eq["u"], self.eq["v"], self.eq["w"])
+            result_.res_loop("u", rmsr_u_); result_.res_loop("v", rmsr_v_); result_.res_loop("w", rmsr_w_); result_.res_loop("P", rmsr_p_)
+            check = [it1 < self.tol for it1 in [rmsr_u_, rmsr_v_, rmsr_w_, rmsr_p_]]
             passes += 1
         return passes
-    def turbloop(self):
+    def turb_loop(self, mesh_ : mesh, user_ : user, value_ : value, result_ : result):
         # stop condition -> all equations return rmsr value < tol
         passes = 0
         check = [False, False]
-        while all(check) is False:
-            # args mesh : mesh, under_relax : double, tol : double, max_iter : int, time_step : float, user : user
-            rmsr_k__ = self.__eq["k"].itersolve(self.__eq["k"], self.__under_relax, self.__tol, self.__max_iter, self.__time_step, self.__user, self.__current_time)
-            rmsr_e__ = self.__eq["e"].itersolve(self.__eq["e"], self.__under_relax, self.__tol, self.__max_iter, self.__time_step, self.__user, self.__current_time)
-            self.__res_loop["k"].extend(rmsr_k__); self.__res_loop["e"].extend(rmsr_e__)
-            check = [i < self.__tol for i in [rmsr_k__, rmsr_e__]]
+        while all(check) is False :
+            if passes < self.max_loop:
+                return passes
+            rmsr_k_, rmsr_e_ = turb.iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time, self.eq["k"], self.eq["e"])
+            result_.res_loop("k", rmsr_k_); result_.res_loop("e", rmsr_e_)
+            check = [i < self.__tol for i in [rmsr_k_, rmsr_e_]]
             passes += 1
         return passes
-    def sctimeloop(self, *args):
-        # args max_passes_multip : int
+    def time_loop(self, *args):
         # stop condition per loop groups -> all loops return rmsr value < tol for a determined number of passes
+
+
+        # to do update boundary face value in iter_solve
+        # export to database
+        # extract from database
+
+        # args max_passes_multip : int
         # loop 1 = energys2s, loop 2 = simple
         n_loops1 = 10 # energys2s - SIMPLE - turb
         n_loops2 = 10 # SIMPLE - turb
@@ -1881,7 +1875,7 @@ class solver:
                 if "rho" in dir(self.__mesh.faces[i].prop):
                     self.__mesh.faces[i].prop.forwardtimeprop()
         return all(check_loop)
-    def scsteadyloop(self, max_passes_multip : int, max_time_steps = 1000):
+    def steady_loop(self, max_passes_multip : int, max_time_steps = 1000):
         # args max passes_multip : int, max_time_steps : int
         # stop condition if res_time [-1] < tol
         # args max_passes_multip : int
