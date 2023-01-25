@@ -727,13 +727,6 @@ class value:
             res_ += Decimal(pow(it1[1] - it1[0], 2))
         res_ = Decimal(res_) / Decimal(self.cells["unit"][what].shape[0])
         return res_
-    def forward_time(self, what : str):
-        for it1 in range(0, self.cells["unit"][what].shape[0]):
-            self.cells("unit", what, it1, 0, isprev = True)
-            self.cells("grad", what, it1, 0, isprev = True)
-        for it1 in range(0, self.faces["unit"][what].shape[0]):
-            self.faces("unit", what, it1, 0, isprev = True)
-            self.faces("grad", what, it1, 0, isprev = True)
     def calc_prop(self, mesh_ : mesh, user_ : user, prop : str, where : str, id : int):
         val = Decimal(0)
         if prop == "rho":
@@ -858,21 +851,33 @@ class pcorrect(linear):
         for it1, it2, it3 in zip(fc_[0], fc_[1], fc_[2]):
             self.calc_bound(mesh_, user_, value_, it1, it2)
     def calc_bound(self, mesh_ : mesh, user_ : user, value_ : value, row : int, col : int):
-        if "noslip" in mesh_.faces[col].boundary:
-            rho_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", row)
-            fvalue_ = value_.cells("unit", "P")[row][1] - np.dot(value_.cells("grad", "P")[row][1], mesh_.geoms.Sf(False, row, col)) - \
-                      np.dot(value_.faces("grad", "P")[col][1], mesh_.geoms.Tf(False, row, col)) / (self.lhs[row, row] / rho_C_)
-            value_.faces("unit", "P", col, fvalue_)
-        elif "inlet" in mesh_.faces[col].boundary:
+        if "inlet" in mesh_.faces[col].boundary:
             rho_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", row)
             rho_f_ = value_.calc_prop(mesh_, user_, "rho", "faces", col)
             cvalue_ = rho_f_ * self.lhs()[row, row] / rho_C_
             self.lhs([row, row], cvalue_, add = True)
+            # boundary P' values are set to zero
+            # Pin = Pamb
         elif "outlet" in mesh_.faces[col].boundary:
             rho_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", row)
             rho_f_ = value_.calc_prop(mesh_, user_, "rho", "faces", col)
             cvalue_ = rho_f_ * self.lhs()[row, row] / rho_C_
             self.lhs([row, row], cvalue_, add = True)
+            # boundary P' values are set to zero
+            # Pout = noslip
+    def calc_post_bound(self, mesh_ : mesh, user_ : user, value_ : value):
+        fc_ = mesh_.templates.iter("fc", "fluid")
+        for it1, it2, it3 in zip(fc_[0], fc_[1], fc_[2]):
+            if "noslip" in mesh_.faces[it2].boundary():
+                rho_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1)
+                fvalue_ = value_.cells("unit", "P")[it1][1] + np.dot(value_.cells("grad", "P")[it1][1], mesh_.geoms.Sf(False, it1, it2)) / (self.lhs[it1, it1] / rho_C_)
+                value_.faces("unit", "P", it2, fvalue_); value_.faces("grad", "P", it2, np.array([0, 0, 0], dtype = Decimal))
+            elif "inlet" in mesh_.faces[it2].boundary():
+                value_.faces("unit", "P", it2, user_.constants.loc[0, "Pamb"]); value_.faces("grad", "P", it2, np.array([0, 0, 0], dtype = Decimal))
+            elif "outlet" in mesh_.faces[it2].boundary():
+                rho_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1)
+                fvalue_ = value_.cells("unit", "P")[it1][1] + np.dot(value_.cells("grad", "P")[it1][1], mesh_.geoms.Sf(False, it1, it2)) / (self.lhs[it1, it1] / rho_C_)
+                value_.faces("unit", "P", it2, fvalue_); value_.faces("grad", "P", it2, np.array([0, 0, 0], dtype = Decimal))
     def calc_correct(self, mesh_ : mesh, user_ : user, value_ : value, u_ref, v_ref, w_ref):
         for it1 in list(mesh_.cells.keys()):
             rho_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1)
@@ -902,6 +907,7 @@ class pcorrect(linear):
         b = rhs_transient_ + under_relax_b
         x, exitCode = sparse.linalg.gmres(A, b, tol = tol_, maxiter = max_iter_)
         value_.update_value(mesh_, "Pcor", np.transpose(x)[0])
+        self.calc_post_bound(mesh_, user_, value_)
         self.calc_correct(mesh_, user_, value_, u_ref, v_ref, w_ref)
         rmsr_ = value_.calc_rmsr("P")
         return rmsr_  
@@ -1036,7 +1042,7 @@ class momentum(linear):
             vout_v2_ = value_.cells("unit", coor_dict[axes[1]])[row][1] + np.dot(grad_vout_v2_, dCf_)
             vout_ = np.array([0, 0, 0], dtype = Decimal)
             vout_[self.axis] = vout_v0_; vout_[axes[0]] = vout_v1_; vout_[axes[1]] = vout_v2_
-            pout_ = value_.cells("unit", "P")[row][1] + np.dot(value_.cells("grad", "P")[row][1], dCf_)
+            pout_ = value_.faces("unit", "P")[col][1]
             lhs_value = value_.calc_prop(mesh_, user_, "rho", "faces", col) * np.dot(vout_, Sf_)
             rhs_value = Decimal(-1) * (value_.calc_prop(mesh_, user_, "rho", "faces", col) * np.dot(vout_, Sf_) * \
                                       np.dot(grad_vout_v0_, dCf_) + pout_ * Sf_[self.axis])
@@ -1044,12 +1050,52 @@ class momentum(linear):
             self.rhs([row, 0], rhs_value, add = True)
         else:
             pass
+    def calc_post_bound(self, mesh_ : mesh, user_ : user, value_ : value):
+        coor_dict = dict({0: "u", 1 :"v", 2: "w"})
+        axes = np.delete(np.array([0,1,2]), self.axis)
+        fc_ = mesh_.templates.iter("fc", "fluid")
+        for it1, it2, it3 in zip(fc_[0], fc_[1], fc_[2]):
+            if "noslip" in mesh_.faces[it2].boundary():
+                value_.faces("unit", coor_dict[self.axis], it2, Decimal(0))
+                value_.faces("grad", coor_dict[self.axis], it2, np.array([0, 0, 0], dtype = Decimal))
+            elif "inlet" in mesh_.faces[it2].boundary():
+                Sf_ = mesh_.geoms.Sf(False, it1, it2)
+                eCf_ = mesh_.geoms.eCf(False, it1, it2)
+                dCf_ = mesh_.geoms.dCf(False, it1, it2)
+                grad_vin_v0_ = value_.cells("grad", coor_dict[self.axis])[it1][1] - \
+                            (np.dot(value_.cells("grad", coor_dict[self.axis])[it1][1], eCf_) * eCf_)
+                grad_vin_v1_ = value_.cells("grad", coor_dict[axes[0]])[it1][1] - \
+                            (np.dot(value_.cells("grad", coor_dict[self.axis])[it1][1], eCf_) * eCf_)
+                grad_vin_v2_ = value_.cells("grad", coor_dict[axes[1]])[it1][1] - \
+                            (np.dot(value_.cells("grad", coor_dict[self.axis])[it1][1], eCf_) * eCf_)
+                vin_v0_ = value_.cells("unit", coor_dict[self.axis])[it1][1] + np.dot(grad_vin_v0_, dCf_)
+                vin_v1_ = value_.cells("unit", coor_dict[axes[0]])[it1][1] + np.dot(grad_vin_v1_, dCf_)
+                vin_v2_ = value_.cells("unit", coor_dict[axes[1]])[it1][1] + np.dot(grad_vin_v2_, dCf_)
+                value_.faces("unit", coor_dict[self.axis], it2, vin_v0_); value_.faces("grad", coor_dict[self.axis], it2, grad_vin_v0_)
+                value_.faces("unit", coor_dict[axes[0]], it2, vin_v1_); value_.faces("grad", coor_dict[axes[0]], it2, grad_vin_v1_)
+                value_.faces("unit", coor_dict[axes[1]], it2, vin_v2_); value_.faces("grad", coor_dict[axes[1]], it2, grad_vin_v2_)
+            elif "outlet" in mesh_.faces[it2].boundary():
+                Sf_ = mesh_.geoms.Sf(False, it1, it2)
+                eCf_ = mesh_.geoms.eCf(False, it1, it2)
+                dCf_ = mesh_.geoms.dCf(False, it1, it2)
+                grad_vout_v0_ = value_.cells("grad", coor_dict[self.axis])[it1][1] - \
+                            (np.dot(value_.cells("grad", coor_dict[self.axis])[it1][1], eCf_) * eCf_)
+                grad_vout_v1_ = value_.cells("grad", coor_dict[axes[0]])[it1][1] - \
+                            (np.dot(value_.cells("grad", coor_dict[self.axis])[it1][1], eCf_) * eCf_)
+                grad_vout_v2_ = value_.cells("grad", coor_dict[axes[1]])[it1][1] - \
+                            (np.dot(value_.cells("grad", coor_dict[self.axis])[it1][1], eCf_) * eCf_)
+                vout_v0_ = value_.cells("unit", coor_dict[self.axis])[it1][1] + np.dot(grad_vout_v0_, dCf_)
+                vout_v1_ = value_.cells("unit", coor_dict[axes[0]])[it1][1] + np.dot(grad_vout_v1_, dCf_)
+                vout_v2_ = value_.cells("unit", coor_dict[axes[1]])[it1][1] + np.dot(grad_vout_v2_, dCf_)
+                value_.faces("unit", coor_dict[self.axis], it2, vout_v0_); value_.faces("grad", coor_dict[self.axis], it2, grad_vout_v0_)
+                value_.faces("unit", coor_dict[axes[0]], it2, vout_v1_); value_.faces("grad", coor_dict[axes[0]], it2, grad_vout_v1_)
+                value_.faces("unit", coor_dict[axes[1]], it2, vout_v2_); value_.faces("grad", coor_dict[axes[1]], it2, grad_vout_v2_)
     def calc_wall(self, mesh_ : mesh, user_ : user, value_ : value):
         coor_dict = dict({0: "u", 1 : "v", 2: "w"})
         if "conj" in list(mesh_.templates.cc.keys()):
             conj_ = mesh_.templates.iter("cc", "conj")
             for it1, it2, it3 in zip(conj_[0], conj_[1], conj_[2]):
-                if "fluid" in mesh_.cells[it1].domain():
+                if "fluid" in mesh_.cells[it1].domain()[0]:
                     v_ = np.array([0, 0, 0], dtype = Decimal)
                     v_[0] = value_.cells("unit", "u")[it1][1]
                     v_[1] = value_.cells("unit", "v")[it1][1]
@@ -1094,7 +1140,8 @@ class momentum(linear):
         b_u = rhs_transient_u + under_relax_b_u; b_v = rhs_transient_v + under_relax_b_v; b_w = rhs_transient_w + under_relax_b_w
         x_u, exitCode = sparse.linalg.gmres(A_u, b_u, tol = tol_, maxiter = max_iter_); x_v, exitCode = sparse.linalg.gmres(A_v, b_v, tol = tol_, maxiter = max_iter_); x_w, exitCode = sparse.linalg.gmres(A_w, b_w, tol = tol_, maxiter = max_iter_)
         value_.update_value(mesh_, "u", np.transpose(x_u)[0]); value_.update_value(mesh_, "v", np.transpose(x_v)[0]); value_.update_value(mesh_, "w", np.transpose(x_w)[0])
-        u_ref.calc_wall(mesh_, user_, value_); w_ref.calc_wall(mesh_, user_, value_)
+        u_ref.calc_post_bound(mesh_, user_, value_); v_ref.calc_post_bound(mesh_, user_, value_); w_ref.calc_post_bound(mesh_, user_, value_)
+        u_ref.calc_wall(mesh_, user_, value_); v_ref.calc_wall(mesh_, user_, value_); w_ref.calc_wall(mesh_, user_, value_)
         rmsr_u = value_.calc_rmsr("u"); rmsr_v = value_.calc_rmsr("v"); rmsr_w = value_.calc_rmsr("w")
         return rmsr_u, rmsr_v. rmsr_w
 class turb_k(linear):
@@ -1226,11 +1273,50 @@ class turb_k(linear):
             self.rhs([row, 0], rhs_value, add = True)
         else:
             pass
+    def calc_post_bound(self, mesh_ : mesh, user_ : user, value_ : value):
+        fc_ = mesh_.templates.iter("fc", "fluid")
+        for it1, it2, it3 in zip(fc_[0], fc_[1], fc_[2]):
+            if "inlet" in mesh_.faces[it2].boundary():
+                Sf_ = mesh_.geoms.Sf(False, it1, it2)
+                eCf_ = mesh_.geoms.eCf(False, it1, it2)
+                dCf_ = mesh_.geoms.dCf(False, it1, it2)
+                grad_vin_v0_ = value_.cells("grad", "u")[it1][1] - \
+                            (np.dot(value_.cells("grad", "u")[it1][1], eCf_) * eCf_)
+                grad_vin_v1_ = value_.cells("grad", "v")[it1][1] - \
+                            (np.dot(value_.cells("grad", "v")[it1][1], eCf_) * eCf_)
+                grad_vin_v2_ = value_.cells("grad", "w")[it1][1] - \
+                            (np.dot(value_.cells("grad", "w")[it1][1], eCf_) * eCf_)
+                vin_v0_ = value_.cells("unit", "u")[it1][1] + np.dot(grad_vin_v0_, dCf_)
+                vin_v1_ = value_.cells("unit", "v")[it1][1] + np.dot(grad_vin_v1_, dCf_)
+                vin_v2_ = value_.cells("unit", "w")[it1][1] + np.dot(grad_vin_v2_, dCf_)
+                vin_ = np.array([vin_v0_, vin_v1_, vin_v2_], dtype = Decimal)
+                grad_kin_ = value_.cells("grad", "k")[it1][1] - \
+                            (np.dot(value_.cells("grad", "k")[it1][1], eCf_) * eCf_)
+                kin_ = 0.5 * np.dot(vin_, vin_) * 0.01**2
+                value_.faces("unit", "k", it2, kin_); value_.faces("grad", "k", it2, grad_kin_)
+            elif "outlet" in mesh_.faces[it2].boundary():
+                Sf_ = mesh_.geoms.Sf(False, it1, it2)
+                eCf_ = mesh_.geoms.eCf(False, it1, it2)
+                dCf_ = mesh_.geoms.dCf(False, it1, it2)
+                grad_vout_v0_ = value_.cells("grad", "u")[it1][1] - \
+                            (np.dot(value_.cells("grad", "u")[it1][1], eCf_) * eCf_)
+                grad_vout_v1_ = value_.cells("grad", "v")[it1][1] - \
+                            (np.dot(value_.cells("grad", "v")[it1][1], eCf_) * eCf_)
+                grad_vout_v2_ = value_.cells("grad", "w")[it1][1] - \
+                            (np.dot(value_.cells("grad", "w")[it1][1], eCf_) * eCf_)
+                vout_v0_ = value_.cells("unit", "u")[it1][1] + np.dot(grad_vout_v0_, dCf_)
+                vout_v1_ = value_.cells("unit", "v")[it1][1] + np.dot(grad_vout_v1_, dCf_)
+                vout_v2_ = value_.cells("unit", "w")[it1][1] + np.dot(grad_vout_v2_, dCf_)
+                vout_ = np.array([vout_v0_, vout_v1_, vout_v2_], dtype = Decimal)
+                grad_kout_ = value_.cells("grad", "k")[it1][1] - \
+                            (np.dot(value_.cells("grad", "k")[it1][1], eCf_) * eCf_)
+                kout_ = value_.cells("unit", "k")[it1][1] + np.dot(grad_kout_, dCf_)
+                value_.faces("unit", "k", it2, kout_); value_.faces("grad", "k", it2, grad_kout_)
     def calc_wall(self, mesh_ : mesh, user_ : user, value_ : value):
         if "conj" in list(mesh_.templates.cc.keys()):
             conj_ = mesh_.templates.iter("cc", "conj")
             for it1, it2, it3 in zip(conj_[0], conj_[1], conj_[2]):
-                if "fluid" in mesh_.cells[it1].domain():
+                if "fluid" in mesh_.cells[it1].domain()[0]:
                     Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1) * pow(value_.cells("unit", "k")[it1][1], 2) / \
                             (value_.calc_prop(mesh_, user_, "miu", "cells", it1) * value_.cells("unit", "e")[it1][1])
                     cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
@@ -1368,11 +1454,50 @@ class turb_e(linear):
             self.rhs([row, 0], rhs_value, add = True)
         else:
             pass
+    def calc_post_bound(self, mesh_ : mesh, user_ : user, value_ : value):
+        fc_ = mesh_.templates.iter("fc", "fluid")
+        for it1, it2, it3 in zip(fc_[0], fc_[1], fc_[2]):
+            if "inlet" in mesh_.faces[it2].boundary():
+                Sf_ = mesh_.geoms.Sf(False, it1, it2)
+                eCf_ = mesh_.geoms.eCf(False, it1, it2)
+                dCf_ = mesh_.geoms.dCf(False, it1, it2)
+                grad_vin_v0_ = value_.cells("grad", "u")[it1][1] - \
+                            (np.dot(value_.cells("grad", "u")[it1][1], eCf_) * eCf_)
+                grad_vin_v1_ = value_.cells("grad", "v")[it1][1] - \
+                            (np.dot(value_.cells("grad", "v")[it1][1], eCf_) * eCf_)
+                grad_vin_v2_ = value_.cells("grad", "w")[it1][1] - \
+                            (np.dot(value_.cells("grad", "w")[it1][1], eCf_) * eCf_)
+                vin_v0_ = value_.cells("unit", "u")[it1][1] + np.dot(grad_vin_v0_, dCf_)
+                vin_v1_ = value_.cells("unit", "v")[it1][1] + np.dot(grad_vin_v1_, dCf_)
+                vin_v2_ = value_.cells("unit", "w")[it1][1] + np.dot(grad_vin_v2_, dCf_)
+                vin_ = np.array([vin_v0_, vin_v1_, vin_v2_], dtype = Decimal)
+                grad_ein_ = value_.cells("grad", "e")[it1][1] - \
+                            (np.dot(value_.cells("grad", "e")[it1][1], eCf_) * eCf_)
+                ein_ =  pow(0.5 * np.dot(vin_, vin_) * 0.01**2, 1.5) * 0.09 / (0.1 * mesh_.cells[it1].volume())  
+                value_.faces("unit", "e", it2, ein_); value_.faces("grad", "e", it2, grad_ein_)
+            elif "outlet" in mesh_.faces[it2].boundary():
+                Sf_ = mesh_.geoms.Sf(False, it1, it2)
+                eCf_ = mesh_.geoms.eCf(False, it1, it2)
+                dCf_ = mesh_.geoms.dCf(False, it1, it2)
+                grad_vout_v0_ = value_.cells("grad", "u")[it1][1] - \
+                            (np.dot(value_.cells("grad", "u")[it1][1], eCf_) * eCf_)
+                grad_vout_v1_ = value_.cells("grad", "v")[it1][1] - \
+                            (np.dot(value_.cells("grad", "v")[it1][1], eCf_) * eCf_)
+                grad_vout_v2_ = value_.cells("grad", "w")[it1][1] - \
+                            (np.dot(value_.cells("grad", "w")[it1][1], eCf_) * eCf_)
+                vout_v0_ = value_.cells("unit", "u")[it1][1] + np.dot(grad_vout_v0_, dCf_)
+                vout_v1_ = value_.cells("unit", "v")[it1][1] + np.dot(grad_vout_v1_, dCf_)
+                vout_v2_ = value_.cells("unit", "w")[it1][1] + np.dot(grad_vout_v2_, dCf_)
+                vout_ = np.array([vout_v0_, vout_v1_, vout_v2_], dtype = Decimal)
+                grad_eout_ = value_.cells("grad", "e")[it1][1] - \
+                         (np.dot(value_.cells("grad", "e")[it1][1], eCf_) * eCf_)
+                eout_ = value_.cells("unit", "e")[it1][1] + np.dot(grad_eout_, dCf_)
+                value_.faces("unit", "e", it2, eout_); value_.faces("grad", "e", it2, grad_eout_)
     def calc_wall(self, mesh_ : mesh, user_ : user, value_ : value):
         if "conj" in list(mesh_.templates.cc.keys()):
             conj_ = mesh_.templates.iter("cc", "conj")
             for it1, it2, it3 in zip(conj_[0], conj_[1], conj_[2]):
-                if "fluid" in mesh_.cells[it1].domain():
+                if "fluid" in mesh_.cells[it1].domain()[0]:
                     v_ = np.array([0, 0, 0], dtype = Decimal)
                     v_[0] = value_.cells("unit", "u")[it1][1]
                     v_[1] = value_.cells("unit", "v")[it1][1]
@@ -1407,6 +1532,7 @@ class turb(linear):
         b_k = rhs_transient_k + under_relax_b_k; b_e = rhs_transient_e + under_relax_b_e
         x_k, exitCode = sparse.linalg.gmres(A_k, b_k, tol = tol_, maxiter = max_iter_); x_e, exitCode = sparse.linalg.gmres(A_e, b_e, tol = tol_, maxiter = max_iter_)
         value_.update_value(mesh_, "k", np.transpose(x_k)[0]); value_.update_value(mesh_, "e", np.transpose(x_e)[0])
+        turb_k.calc_post_bound(mesh_, user_, value_); turb_e.calc_post_bound(mesh_, user_, value_)
         k_ref.calc_wall(mesh_, user_, value_); e_ref.calc_wall(mesh_, user_, value_)
         rmsr_k = value_.calc_rmsr("k"); rmsr_e = value_.calc_rmsr("e")
         return rmsr_k, rmsr_e
@@ -1606,7 +1732,7 @@ class energy(linear):
         else:
             pass
     def calc_conj(self, mesh_, user_ : user, value_ : value, id_ : list):
-        if "fluid" in mesh_.cells[id_[0]].domain():
+        if "fluid" in mesh_.cells[id_[0]].domain()[0]:
             fluid_id = id_[0]
             solid_id = id_[1]
         else:
@@ -1633,11 +1759,50 @@ class energy(linear):
             self.lhs([solid_id, solid_id], lhs_value, add = True)
             self.lhs([solid_id, fluid_id], -1 * lhs_value, add = True)
             self.rhs([solid_id, 0], rhs_value, add = True) 
+    def calc_post_bound(self, mesh_ : mesh, user_ : user, value_ : value):
+        fc_ = mesh_.templates.iter("fc", "fluid")
+        for it1, it2, it3 in zip(fc_[0], fc_[1], fc_[2]):
+            if "hamb" in mesh_.faces[it2].boundary():
+                Sf_ = mesh_.geoms.Sf(False, it1, it2)
+                eCf_ = mesh_.geoms.eCf(False, it1, it2)
+                dCf_ = mesh_.geoms.dCf(False, it1, it2)
+                grad_Thamb_ = value_.cells("grad", "T")[it1][1] - \
+                         (np.dot(value_.cells("grad", "T")[it1][1], eCf_) * eCf_)
+                Thamb_ = value_.cells("unit", "T")[it1][1] + np.dot(grad_Thamb_, dCf_)
+                value_.faces("unit", "T", it2, Thamb_); value_.faces("grad", "T", it2, grad_Thamb_)
+            elif "inlet" in mesh_.faces[it2].boundary():
+                # specified value; zero gradient at inlet
+                Sf_ = mesh_.geoms.Sf(False, it1, it2)
+                eCf_ = mesh_.geoms.eCf(False, it1, it2)
+                dCf_ = mesh_.geoms.dCf(False, it1, it2)
+                grad_Tin_ = value_.cells("grad", "T")[it1][1] - \
+                            (np.dot(value_.cells("grad", "T")[it1][1], eCf_) * eCf_)
+                Tin_ =  user_.constants.loc[0, "Tamb"] 
+                value_.faces("unit", "T", it2, Tin_); value_.faces("grad", "T", it2, grad_Tin_)
+            elif "outlet" in mesh_.faces[it2].boundary():
+                # fully developed flow; zero gradient at outlet
+                Sf_ = mesh_.geoms.Sf(False, it1, it2)
+                eCf_ = mesh_.geoms.eCf(False, it1, it2)
+                dCf_ = mesh_.geoms.dCf(False, it1, it2)
+                grad_Tout_ = value_.cells("grad", "T")[it1][1] - \
+                            (np.dot(value_.cells("grad", "T")[it1][1], eCf_) * eCf_)
+                Tout_ = value_.cells("unit", "T")[it1][1] + np.dot(grad_Tout_, dCf_)
+                value_.faces("unit", "T", it2, Tout_); value_.faces("grad", "T", it2, grad_Tout_)
+        neigh_ = mesh_.templates.iter("cc", "conj")
+        for it1, it2, it3 in zip(neigh_[0], neigh_[1], neigh_[2]):
+            if "solid" in mesh_.cells[it1].domain()[0]:
+                Sf_ = mesh_.geoms.Sf(False, it1, it2)
+                eCf_ = mesh_.geoms.eCf(False, it1, it2)
+                dCf_ = mesh_.geoms.dCf(False, it1, it2)
+                grad_Tconj_ = value_.cells("grad", "T")[it1][1] - \
+                            (np.dot(value_.cells("grad", "T")[it1][1], eCf_) * eCf_)
+                Tconj_ = value_.cells("unit", "T")[it1][1] + np.dot(grad_Tconj_, dCf_)
+                value_.faces("unit", "T", it2, Tconj_); value_.faces("grad", "T", it2, grad_Tconj_)
     def calc_wall(self, mesh_ : mesh, user_ : user, value_ : value):
         if "conj" in list(mesh_.templates.cc.keys()):
             conj_ = mesh_.templates.iter("cc", "conj")
             for it1, it2, it3 in zip(conj_[0], conj_[1], conj_[2]):
-                if "fluid" in mesh_.cells[it1].domain():
+                if "fluid" in mesh_.cells[it1].domain()[0]:
                     v_ = np.array([0, 0, 0], dtype = Decimal)
                     v_[0] = value_.cells("unit", "u")[it1][1]
                     v_[1] = value_.cells("unit", "v")[it1][1]
@@ -1671,6 +1836,7 @@ class energy(linear):
         b = rhs_transient_ + under_relax_b
         x, exitCode = sparse.linalg.gmres(A, b, tol = tol_, maxiter = max_iter_)
         value_.update_value(mesh_, "T", np.transpose(x)[0])
+        self.calc_post_bound(mesh_, user_, value_)
         self.calc_wall(mesh_, user_, value_)
         rmsr_ = value_.calc_rmsr("T")
         return rmsr_
@@ -1726,16 +1892,26 @@ class s2s(linear):
 
 ##### cfd solver #########
 class result:
-    def __init__(self):
-        self.__eq = dict({"P": [], "u": [], "v": [], "w": [], "k": [], "e": [], "T": []})
+    def __init__(self, mesh_ : mesh):
+        self.__val_face = dict({}); self__val_cell = dict({})
+        for it1 in list(mesh_.faces.keys()):
+            self.__val_face[it1] = dict({"P": [], "u": [], "v": [], "w": [], "k": [], "e": [], "T": []})
+        for it1 in list(mesh_.cells.keys()):
+            self.__val_cell[it1] = dict({"P": [], "u": [], "v": [], "w": [], "k": [], "e": [], "T": []})
         self.__res_loop = dict({"P": [], "u": [], "v": [], "w": [], "k": [], "e": [], "T": []})
         self.__res_time = dict({"P": [], "u": [], "v": [], "w": [], "k": [], "e": [], "T": []})
     @property
-    def eq(self, what_ : str):
-        return self.__eq[what_]
-    @eq.setter
-    def eq(self, what_ : str, val_):
-        self.__eq[what_].append(val_)
+    def val_face(self):
+        return self.__val_face
+    @val_face.setter
+    def val_face(self, id_ : int, what_ : str, val_):
+        self.__val_face[id_][what_].append(val_)
+    @property
+    def val_cell(self):
+        return self.__val_cell
+    @val_cell.setter
+    def val_cell(self, id_ : int, what_ : str, val_):
+        self.__val_cell[id_][what_].append(val_)
     @property
     def res_loop(self, what_ : str):
         return self.__res_loop[what_]
@@ -1753,7 +1929,6 @@ class result:
     def export(self):
         # mesh, result to database
         return
-
 class solver:
     def __init__(self, mesh_ : mesh, user_ : user, value_ : value, under_relax, tol, max_iter, max_loop, time_step, max_time_step):
         self.__eq = dict({"Pcor": pcorrect(mesh_), "u": momentum(mesh_, 0), "v": momentum(mesh_, 1), "w": momentum(mesh_, 2), \
@@ -1794,17 +1969,47 @@ class solver:
         if new_time is True:
             self.__current_time += 1
     
+    def forward_time(self, value_ : value, result_ : result):
+        check_res_time = []
+        for it1 in list(value_.cells["unit"].keys()):
+            for it2 in range(0, value_.cells["unit"][it1].shape[0]):
+                value_.cells("unit", it1, 0, is_prev = True)
+                value_.cells("grad", it1, 0, is_prev = True)
+            for it2 in range(0, value_.faces["unit"][it1].shape[0]):
+                value_.faces("unit", it1, 0, is_prev = True)
+                value_.faces("grad", it1, 0, is_prev = True)
+        for it1 in list(result_.val_face[0].keys()):
+            for it2 in list(result_.val_cell.keys()):
+                result_.val_cell(it2, it1, value_.cells("unit", it1)[it2][0])
+            for it2 in list(result_.val_face.keys()):
+                result_.val_face(it2, it1, value_.faces("unit", it1)[it2][0])
+            result_.res_time(it1, result_.res_loop(it1)[-1])
+            check_res_time.append(result_.res_loop(it1)[-1] < self.tol)
+        self.current_time(True)
+        return all(check_res_time)
     def energy_s2s_loop(self, mesh_ : mesh, user_ : user, value_ : value, result_ : result):
         # stop condition -> all equations return rmsr value < tol
         passes = 0
         check = [False]
         while all(check) is False:
             if passes > self.max_loop:
-                return passes
+                break
             _ = self.eq["s2s"].iter_solve(mesh_, user_, value_, self.tol, self.max_iter)
             rmsr_t_ = self.eq["T"].iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time)
             result_.res_loop("T", rmsr_t_)
             check[0] = rmsr_t_ < self.tol
+            passes += 1
+        return passes
+    def turb_loop(self, mesh_ : mesh, user_ : user, value_ : value, result_ : result):
+        # stop condition -> all equations return rmsr value < tol
+        passes = 0
+        check = [False, False]
+        while all(check) is False:
+            if passes >= self.max_loop:
+                break
+            rmsr_k_, rmsr_e_ = turb.iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time, self.eq["k"], self.eq["e"])
+            result_.res_loop("k", rmsr_k_); result_.res_loop("e", rmsr_e_)
+            check = [i < self.__tol for i in [rmsr_k_, rmsr_e_]]
             passes += 1
         return passes
     def SIMPLE_loop(self, mesh_ : mesh, user_ : user, value_ : value, result_ : result):
@@ -1812,195 +2017,48 @@ class solver:
         passes = 0
         check = [False, False, False, False]
         while all(check) is False:
-            if passes > self.max_loop:
-                return passes
+            if passes >= self.max_loop:
+                break
             rmsr_u_, rmsr_v_, rmsr_w_ = self.eq["u"].iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time, self.eq["u"], self.eq["v"], self.eq["w"])
             rmsr_p_ = self.eq["Pcor"].itersolve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time, self.eq["u"], self.eq["v"], self.eq["w"])
             result_.res_loop("u", rmsr_u_); result_.res_loop("v", rmsr_v_); result_.res_loop("w", rmsr_w_); result_.res_loop("P", rmsr_p_)
             check = [it1 < self.tol for it1 in [rmsr_u_, rmsr_v_, rmsr_w_, rmsr_p_]]
             passes += 1
         return passes
-    def turb_loop(self, mesh_ : mesh, user_ : user, value_ : value, result_ : result):
-        # stop condition -> all equations return rmsr value < tol
-        passes = 0
-        check = [False, False]
-        while all(check) is False :
-            if passes < self.max_loop:
-                return passes
-            rmsr_k_, rmsr_e_ = turb.iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time, self.eq["k"], self.eq["e"])
-            result_.res_loop("k", rmsr_k_); result_.res_loop("e", rmsr_e_)
-            check = [i < self.__tol for i in [rmsr_k_, rmsr_e_]]
-            passes += 1
-        return passes
-    def time_loop(self, *args):
+    def time_loop(self, mesh_ : mesh, user_ : user, value_ : value, result_ : result):
         # stop condition per loop groups -> all loops return rmsr value < tol for a determined number of passes
-
-
-        # to do update boundary face value in iter_solve
-        # export to database
-        # extract from database
-
-        # args max_passes_multip : int
-        # loop 1 = energys2s, loop 2 = simple
-        n_loops1 = 10 # energys2s - SIMPLE - turb
-        n_loops2 = 10 # SIMPLE - turb
-        while n_loops1 > args[0] * 3:
-            n_loops1 = 0
-            n_loops1 += self.energys2sloop()
-            while n_loops2 > args[0] * 2:
-                n_loops2 = 0
-                n_loops2 += self.SIMPLEloop()
-                n_loops2 += self.turbloop()
-            n_loops1 += n_loops2
-        # append time residuals
-        check_loop = []
-        for i in self.__res_time.keys():
-            current_value = []; prev_value = []
-            for j in self.__mesh.cells.keys():
-                current_value.extend(self.__mesh.cells[j].value[i][-1])
-                prev_value.extend(self.__mesh.cells[j].value[i][-2])
-            self.__res_time[i].extend(cfd_linear.linear.calcrmsr(np.array(current_value), np.array(prev_value)))
-            check_loop.extend(self.__res_time[i][-1] < self.__tol)
-        # forward time step, add empty value/grad, move back props
-        for i in self.__mesh.cells.dict():
-            for j in self.__mesh.cells[i].value.dict():
-                self.__mesh.cells[i].value[j] = np.concatenate((self.__mesh.cells[i].value[j], np.array([self.__mesh.cells[i].value[j][-1]])))
-                self.__mesh.cells[i].grad[j] = np.concatenate((self.__mesh.cells[i].grad[j], self.__mesh.cells[i].grad[j][-1]))
-                if "rho" in dir(self.__mesh.cells[i].prop):
-                    self.__mesh.cells[i].prop.forwardtimeprop()
-        for i in self.__mesh.faces.dict():
-            for j in self.__mesh.faces[i].value.dict():
-                self.__mesh.faces[i].value[j] = np.concatenate((self.__mesh.cells[i].value[j], np.array([self.__mesh.cells[i].value[j][-1]])))
-                self.__mesh.faces[i].grad[j] = np.concatenate((self.__mesh.cells[i].grad[j], np.array([self.__mesh.cells[i].grad[j][-1]])))
-                if "rho" in dir(self.__mesh.faces[i].prop):
-                    self.__mesh.faces[i].prop.forwardtimeprop()
-        return all(check_loop)
-    def steady_loop(self, max_passes_multip : int, max_time_steps = 1000):
-        # args max passes_multip : int, max_time_steps : int
-        # stop condition if res_time [-1] < tol
-        # args max_passes_multip : int
-        pass_time = 0
-        check_time = False
-        while check_time is False:
-            check_time = self.sctimeloop(self, max_passes_multip)
-            pass_time += 1
-            if pass_time >= max_time_steps:
+        ctrl_all = 0; passes_all = 0; exitCode = "Reached max. iter"
+        while ctrl_all < self.max_loop:
+            ctrl_SIMPLE_turb = 0
+            passes_SIMPLE_turb = 0
+            passes_all = self.energy_s2s_loop(mesh_, user_, value_, result_)
+            while ctrl_SIMPLE_turb < self.max_loop:
+                # constant prop
+                passes_SIMPLE_turb = 0
+                passes_SIMPLE_turb += self.turb_loop(mesh_, user_, value_, result_)
+                passes_SIMPLE_turb += self.SIMPLE_loop(mesh_, user_, value_, result_)
+                if passes_SIMPLE_turb <= 5:
+                    break
+                ctrl_SIMPLE_turb += 1
+            if passes_all + passes_SIMPLE_turb <= 8:
+                # energy, momentum, and turb all converged at approx. 2 iterations plus minus two
+                exitCode = "Converged below threshold"
                 break
-        return
-    
-        
-
-class solver:
-    def __init__(self, what, *args):
-        # args what : [] dtype = str, init_file : str, solid_prop_file : str, const_value_file : str, mesh_file : str, 
-        # under_relax : double, tol : double, max_iter : int, time_step : float
-        self.__user, self.__mesh = cfd_scheme.make_scheme(args[0], args[1], args[2], args[3])
-        var_to_linear = dict({"Pcor": "pcorrect", "u": "momentum", "v": "momentum", "w": "momentum",\
-                              "k": "turb_k", "e": "turb_e", "T": "energy", "q": "s2s"})
-        coor_dict = dict({"u": 0, "v": 1, "w": 2})
-        self.__eq = dict({})
-        self.__res_loop = dict({})
-        self.__res_time = dict({})
-        for i in what:
-            if var_to_linear[i] == "momentum":
-                self.__eq[i] = cfd_linear.__dict__[var_to_linear[i]](self.__mesh, coor_dict[i])
-            else:
-                self.__eq[i] = cfd_linear.__dict__[var_to_linear[i]](self.__mesh)
-            self.__res_loop[i] = []
-            self.__res_time[i] = []
-        self.__current_time = 0
-        self.__under_relax = float(args[4])
-        self.__tol = float(args[5])
-        self.__max_iter = int(args[6])
-        self.__time_step = float(args[7])
-    def energys2sloop(self):
-        # stop condition -> both equations return rmsr value < tol
-        passes = 0
-        check = [False, False]
-        while all(check) is False:
-            # args mesh : mesh, under_relax : double, tol : double, max_iter : int, time_step : float, user : user
-            rmsr_t__ = self.__eq["T"].itersolve(self.__eq["T"], self.__under_relax, self.__tol, self.__max_iter, self.__time_step, self.__user, self.__current_time)
-            rmsr_q__ = self.__eq["q"].itersolve(self.__eq["q"], self.__under_relax, self.__tol, self.__max_iter, self.__time_step, self.__current_time)
-            self.__res_loop["T"].extend(rmsr_t__); self.__res_loop["q"].extend(rmsr_q__)
-            
-            check = [i < self.__tol for i in [rmsr_t__, rmsr_q__]]
-            passes += 1
-        return passes
-    def SIMPLEloop(self):
-        # stop condition -> all equations return rmsr value < tol
-        passes = 0
-        check = [False, False, False, False]
-        while all(check) is False:
-            # args mesh : mesh, under_relax : double, tol : double, max_iter : int, time_step : float, user : user
-            rmsr_u__ = self.__eq["u"].itersolve(self.__eq["u"], self.__under_relax, self.__tol, self.__max_iter, self.__time_step, self.__user, self.__current_time)
-            rmsr_v__ = self.__eq["v"].itersolve(self.__eq["u"], self.__under_relax, self.__tol, self.__max_iter, self.__time_step, self.__user, self.__current_time)
-            rmsr_w__ = self.__eq["w"].itersolve(self.__eq["u"], self.__under_relax, self.__tol, self.__max_iter, self.__time_step, self.__user, self.__current_time)
-            # args mesh : mesh, under_relax : double, tol : double, max_iter : int, time_step : float, u :momentum, v : momentum, w : momentum
-            rmsr_pcor__ = self.__eq["Pcor"].itersolve(self.__eq["Pcor"], self.__under_relax, self.__tol, self.__max_iter, \
-                                        self.__time_step, self.__eq["u"], self.__eq["v"], self.__eq["w"], self.__current_time)
-            self.__res_loop["u"].extend(rmsr_u__); self.__res_loop["v"].extend(rmsr_v__); self.__res_loop["w"].extend(rmsr_w__)
-            self.__res_loop["Pcor"].extend(rmsr_pcor__)
-            check = [i < self.__tol for i in [rmsr_u__, rmsr_v__, rmsr_w__, rmsr_pcor__]]
-            passes += 1
-        return passes
-    def turbloop(self):
-        # stop condition -> all equations return rmsr value < tol
-        passes = 0
-        check = [False, False]
-        while all(check) is False:
-            # args mesh : mesh, under_relax : double, tol : double, max_iter : int, time_step : float, user : user
-            rmsr_k__ = self.__eq["k"].itersolve(self.__eq["k"], self.__under_relax, self.__tol, self.__max_iter, self.__time_step, self.__user, self.__current_time)
-            rmsr_e__ = self.__eq["e"].itersolve(self.__eq["e"], self.__under_relax, self.__tol, self.__max_iter, self.__time_step, self.__user, self.__current_time)
-            self.__res_loop["k"].extend(rmsr_k__); self.__res_loop["e"].extend(rmsr_e__)
-            check = [i < self.__tol for i in [rmsr_k__, rmsr_e__]]
-            passes += 1
-        return passes
-    def sctimeloop(self, *args):
-        # args max_passes_multip : int
-        # stop condition per loop groups -> all loops return rmsr value < tol for a determined number of passes
-        # loop 1 = energys2s, loop 2 = simple
-        n_loops1 = 10 # energys2s - SIMPLE - turb
-        n_loops2 = 10 # SIMPLE - turb
-        while n_loops1 > args[0] * 3:
-            n_loops1 = 0
-            n_loops1 += self.energys2sloop()
-            while n_loops2 > args[0] * 2:
-                n_loops2 = 0
-                n_loops2 += self.SIMPLEloop()
-                n_loops2 += self.turbloop()
-            n_loops1 += n_loops2
-        # append time residuals
-        check_loop = []
-        for i in self.__res_time.keys():
-            current_value = []; prev_value = []
-            for j in self.__mesh.cells.keys():
-                current_value.extend(self.__mesh.cells[j].value[i][-1])
-                prev_value.extend(self.__mesh.cells[j].value[i][-2])
-            self.__res_time[i].extend(cfd_linear.linear.calcrmsr(np.array(current_value), np.array(prev_value)))
-            check_loop.extend(self.__res_time[i][-1] < self.__tol)
-        # forward time step, add empty value/grad, move back props
-        for i in self.__mesh.cells.dict():
-            for j in self.__mesh.cells[i].value.dict():
-                self.__mesh.cells[i].value[j] = np.concatenate((self.__mesh.cells[i].value[j], np.array([self.__mesh.cells[i].value[j][-1]])))
-                self.__mesh.cells[i].grad[j] = np.concatenate((self.__mesh.cells[i].grad[j], self.__mesh.cells[i].grad[j][-1]))
-                if "rho" in dir(self.__mesh.cells[i].prop):
-                    self.__mesh.cells[i].prop.forwardtimeprop()
-        for i in self.__mesh.faces.dict():
-            for j in self.__mesh.faces[i].value.dict():
-                self.__mesh.faces[i].value[j] = np.concatenate((self.__mesh.cells[i].value[j], np.array([self.__mesh.cells[i].value[j][-1]])))
-                self.__mesh.faces[i].grad[j] = np.concatenate((self.__mesh.cells[i].grad[j], np.array([self.__mesh.cells[i].grad[j][-1]])))
-                if "rho" in dir(self.__mesh.faces[i].prop):
-                    self.__mesh.faces[i].prop.forwardtimeprop()
-        return all(check_loop)
-    def scsteadyloop(self, max_passes_multip : int, max_time_steps = 1000):
-        # args max passes_multip : int, max_time_steps : int
+            ctrl_all += 1
+        print("Time {} done. {} ({} iterations)".format(self.current_time, exitCode, ctrl_all))
+        check_res_time = self.forward_time(value_, result_)
+        return check_res_time
+    def steady_loop(self, mesh_ : mesh, user_ : user, value_ : value, result_ : result):
         # stop condition if res_time [-1] < tol
-        # args max_passes_multip : int
-        pass_time = 0
-        check_time = False
-        while check_time is False:
-            check_time = self.sctimeloop(self, max_passes_multip)
-            pass_time += 1
-            if pass_time >= max_time_steps:
-                break
+        ctrl_time = 0
+        while ctrl_time < self.max_time_step:
+            check_time = self.time_loop(self, mesh_, user_, value_, result_)
+            if check_time is True:
+                print("Done. Steady state achieved ({}s)".format(self.time_step * ctrl_time))
+                return
+            ctrl_time += 1
+        print("Steady state not achieved ({}s)".format(self.time_step * self.max_time_step))
         return
+
+# export to database
+# extract from database
