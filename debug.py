@@ -12,7 +12,7 @@ import seaborn as sns
 getcontext().prec = 16
 
 def match_duplicates(meshname : str):
-    __mesh = meshio.read(os.getcwd() + "\\problem\\test\\" + meshname)
+    __mesh = meshio.read(os.getcwd() + "\\case\\test\\" + meshname)
     # points aliases
     points_sets = []; points_uniques = []; points_product = []; points_alias = []
     for it1 in __mesh.points:
@@ -2060,5 +2060,8 @@ class solver:
         print("Steady state not achieved ({}s)".format(self.time_step * self.max_time_step))
         return
 
+user_test = 
+
+# TO DO
 # export to database
 # extract from database
