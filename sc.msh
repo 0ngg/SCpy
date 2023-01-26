@@ -3,12 +3,12 @@ $MeshFormat
 $EndMeshFormat
 $PhysicalNames
 10
-2 44 "sflux1_hamb"
+2 44 "sflux1_hamb_irr0"
 2 45 "noslip"
 2 46 "inlet"
 2 47 "outlet"
-2 48 "fflux1_noslip_s2s1"
-2 49 "noslip_s2s2"
+2 48 "irr1_noslip_s2s0"
+2 49 "noslip_s2s1"
 2 50 "none"
 3 51 "solid_glass"
 3 52 "fluid_udara"

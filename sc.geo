@@ -49,7 +49,7 @@ Layers{3};          // create only one layer of elements in the direction of ext
 Recombine;};        // recombine triangular mesh to quadrangular mesh
 // geometry boundaries must be named, partitions are found by neighboring cells
 //+
-Physical Surface("sflux1_hamb", 44) = {7};
+Physical Surface("sflux1_hamb_irr0", 44) = {7};
 //+
 Physical Surface("noslip", 45) = {9, 11};
 //+
@@ -57,9 +57,9 @@ Physical Surface("inlet", 46) = {13};
 //+
 Physical Surface("outlet", 47) = {2};
 //+
-Physical Surface("fflux1_noslip_s2s1", 48) = {10};
+Physical Surface("irr1_noslip_s2s0", 48) = {10};
 //+
-Physical Surface("noslip_s2s2", 49) = {5};
+Physical Surface("noslip_s2s1", 49) = {5};
 //+
 Physical Surface("none", 50) = {1, 3, 4, 6, 8, 14, 15, 16, 18};
 //+
