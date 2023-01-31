@@ -715,10 +715,10 @@ class value:
             P_ = float(self.faces("unit", "P")[id][1]); T_ = float(self.faces("unit", "T")[id][1])
         elif where == "cells":
             P_ = float(self.cells("unit", "P")[id][1]); T_ = float(self.cells("unit", "T")[id][1])
-        if T_ < 200:
-            T_ = float(200)
-        elif T_ > 600:
-            T_ = float(600)
+        if T_ < 273:
+            T_ = float(273)
+        elif T_ > 373:
+            T_ = float(373)
         if P_ < 101325:
             P_ = float(101325)
         W_ = float(user_.constants.loc[0, "Wamb"])
