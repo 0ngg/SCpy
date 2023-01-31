@@ -4,6 +4,7 @@ import math; import os
 import meshio
 import scipy.sparse as sparse
 from decimal import *
+import time
 import itertools
 from copy import deepcopy
 import matplotlib.pyplot as plt
@@ -178,14 +179,14 @@ class face:
         get_centroid = [0.00, 0.00, 0.00]
         if len(self.nodes) == 3:
             get_coor = [[it1 for it1 in points_dict[it2]] for it2 in self.nodes]
-            get_area = np.sqrt(np.sum(list(map(lambda x:x**2, np.cross(np.array(get_coor[1] - get_coor[0]),
+            get_area = np.sqrt(np.sum(list(map(lambda x: float(x)**2, np.cross(np.array(get_coor[1] - get_coor[0]),
                                                np.array(get_coor[2] - get_coor[0])))))) / 2
             get_centroid = (get_coor[0] + get_coor[1] + get_coor[2]) / 3
         elif len(self.nodes) == 4:
             diag1 = [0, 0]; diag2 = [it1 for it1 in self.nodes]; rhs = 0.00
             for it1 in range(0, len(self.nodes) - 1):
                 for it2 in range(it1, len(self.nodes)):
-                    rhs_check = np.sqrt(np.sum(list(map(lambda x:x**2, np.array(points_dict[self.nodes[it1]] - \
+                    rhs_check = np.sqrt(np.sum(list(map(lambda x: float(x)**2, np.array(points_dict[self.nodes[it1]] - \
                                 np.array(points_dict[self.nodes[it2]]))))))
                     if rhs_check > rhs:
                         rhs = rhs_check; diag1[0] = self.nodes[it1]; diag1[1] = self.nodes[it2]
@@ -194,7 +195,7 @@ class face:
                 get_coor = np.array([[it2 for it2 in points_dict[it1]], 
                             [it2 for it2 in points_dict[diag2[0]]],
                             [it2 for it2 in points_dict[diag2[1]]]])
-                part_area = np.sqrt(np.sum(list(map(lambda x:x**2, np.cross(get_coor[1] - get_coor[0],
+                part_area = np.sqrt(np.sum(list(map(lambda x: float(x)**2, np.cross(get_coor[1] - get_coor[0],
                             get_coor[2] - get_coor[0]))))) / 2
                 part_centroid = (get_coor[0] + get_coor[1] + get_coor[2]) / 3
                 get_area += part_area; get_centroid += part_centroid * part_area
@@ -679,7 +680,6 @@ class value:
         self.set_cells("grad", what, id_, grad_)
     def update_value(self, mesh_ : mesh, what : str, new_values : np.array):
         # new_values in np.array(shape=(1,n), dtype = Decimal)[0]
-        print(new_values)
         res_ = 0
         for it1 in range(0, new_values.shape[0]):
             res_ += pow(self.cells("unit", what)[it1][1] - new_values[it1], 2)
@@ -699,10 +699,8 @@ class value:
                 if len(neigh_cell) == 2:
                     self.interpolate_grad(mesh_, [neigh_cell[0], neigh_cell[1], it1], what)
                     self.QUICK(mesh_, [neigh_cell[0], it1], what)
-                    print("neighbor unit: {}, grad: {}".format(self.faces("unit", "T")[it1][1], self.faces("grad", "T")[it1][1]))
                 else:
                     self.QUICK(mesh_, [neigh_cell[0], it1], what)
-                    print("adiabatic unit: {}, grad: {}".format(self.faces("unit", "T")[it1][1], self.faces("grad", "T")[it1][1]))
         return res_
     def calc_rmsr(self, what : str):
         # new - prev, time rmsr, cell values only
@@ -714,27 +712,29 @@ class value:
     def calc_prop(self, mesh_ : mesh, user_ : user, prop : str, where : str, id : int):
         val = 0
         if where == "faces":
-            P_ = self.faces("unit", "P")[id][1]; T_ = self.faces("unit", "T")[id][1]
+            P_ = float(self.faces("unit", "P")[id][1]); T_ = float(self.faces("unit", "T")[id][1])
         elif where == "cells":
-            P_ = self.cells("unit", "P")[id][1]; T_ = self.cells("unit", "T")[id][1]
-        if T_ < 195:
-            T_ = float(195)
-        elif T_ > 623.13:
-            T_ = float(623.13)
+            P_ = float(self.cells("unit", "P")[id][1]); T_ = float(self.cells("unit", "T")[id][1])
+        if T_ < 200:
+            T_ = float(200)
+        elif T_ > 600:
+            T_ = float(600)
+        if P_ < 101325:
+            P_ = float(101325)
         W_ = float(user_.constants.loc[0, "Wamb"])
         if prop == "rho":
-            rho_ = HAPropsSI("Vha", "P", float(P_), "T", float(T_), "W", float(W_))
+            rho_ = HAPropsSI("Vha", "P", P_, "T", T_, "W", W_)
             val = 1 / rho_
         elif prop == "miu":
-            miu_ = HAPropsSI("mu", "P", float(P_), "T", float(T_), "W", float(W_)) 
+            miu_ = HAPropsSI("mu", "P", P_, "T", T_, "W", W_) 
             val = miu_
         elif prop == "cp":
-            cp_ = HAPropsSI("cp_ha", "P", float(P_), "T", float(T_), "W", float(W_))
+            cp_ = HAPropsSI("cp_ha", "P", P_, "T", T_, "W", W_)
             val = cp_
         elif prop == "alpha":
-            k_ = HAPropsSI("k", "P", float(P_), "T", float(T_), "W", float(W_))
-            rho_ = HAPropsSI("Vha", "P", float(P_), "T", float(T_), "W", float(W_))
-            cp_ = HAPropsSI("cp_ha", "P", float(P_), "T", float(T_), "W", float(W_))
+            k_ = HAPropsSI("k", "P", P_, "T", T_, "W", W_)
+            rho_ = HAPropsSI("Vha", "P", P_, "T", T_, "W", W_)
+            cp_ = HAPropsSI("cp_ha", "P", P_, "T", T_, "W", W_)
             val = k_ * rho_ / cp_
         # solid constant
         elif prop == "k":
@@ -811,29 +811,34 @@ class pcorrect(linear):
         prev_row = cc_[0][0]
         for it1, it2, it3 in cc_:
             rho_f_ = value_.calc_prop(mesh_, user_, "rho", "faces", it3)
-            Df_x_ = ((mesh_.cells[it1].volume / u_ref.lhs[it1, it2]) + (mesh_.cells[it2].volume / u_ref.lhs[it1, it2])) / 2
-            Df_y_ = ((mesh_.cells[it1].volume / v_ref.lhs[it1, it2]) + (mesh_.cells[it2].volume / v_ref.lhs[it1, it2])) / 2
-            Df_z_ = ((mesh_.cells[it1].volume / w_ref.lhs[it1, it2]) + (mesh_.cells[it2].volume / w_ref.lhs[it1, it2])) / 2
             Sf_ = mesh_.geoms.Sf(False, it1, it3)
             dCF_ = mesh_.geoms.dCF(False, it1, it2)
-            Dau_f_ = (pow(Df_x_ * Sf_[0], 2) + pow(Df_y_ * Sf_[1], 2) + pow(Df_z_ * Sf_[2], 2) / \
-                     (dCF_[0] * Df_x_ * Sf_[0] + dCF_[1] * Df_y_ * Sf_[1] + dCF_[2] * Df_z_ * Sf_[2]))
+            try:
+                with np.errstate(all='raise'):
+                    Df_x_ = ((mesh_.cells[it1].volume / u_ref.lhs[it1, it2]) + (mesh_.cells[it2].volume / u_ref.lhs[it1, it2])) / 2
+                    Df_y_ = ((mesh_.cells[it1].volume / v_ref.lhs[it1, it2]) + (mesh_.cells[it2].volume / v_ref.lhs[it1, it2])) / 2
+                    Df_z_ = ((mesh_.cells[it1].volume / w_ref.lhs[it1, it2]) + (mesh_.cells[it2].volume / w_ref.lhs[it1, it2])) / 2
+                    Dau_f_ = (pow(Df_x_ * Sf_[0], 2) + pow(Df_y_ * Sf_[1], 2) + pow(Df_z_ * Sf_[2], 2) / \
+                            (dCF_[0] * Df_x_ * Sf_[0] + dCF_[1] * Df_y_ * Sf_[1] + dCF_[2] * Df_z_ * Sf_[2]))
+            except FloatingPointError:
+                Df_x_ = 0.00; Df_y_ = 0.00; Df_z_ = 0.00; Dau_f_ = 0.00
+            except ValueError:
+                Df_x_ = 0.00; Df_y_ = 0.00; Df_z_ = 0.00; Dau_f_ = 0.00
             if prev_row == it1:
                 aC_ += rho_f_ * Dau_f_
-                bC_ += rho_f_ * np.dot(np.array([value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1],
-                                       value_.faces("unit", "u")[it3][1]]), Sf_) - \
-                                       np.dot(np.array([[Df_x_, 0, 0], [0, Df_y_, 0], [0, 0, Df_z_]]) * \
-                                       value_.faces("grad", "u")[it3][1] - value_.linear_itr("grad", mesh_, [it1, it2, it3], "P"), Sf_) 
+                Df_ = np.array([[Df_x_, 0, 0], [0, Df_y_, 0], [0, 0, Df_z_]])
+                bC_ += rho_f_ * np.dot(np.array([value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1], value_.faces("unit", "w")[it3][1]]), Sf_) - \
+                                       np.dot(np.dot(Df_, (value_.faces("grad", "P")[it3][1] - value_.linear_itr("grad", mesh_, [it1, it2, it3], "P"))), Sf_) 
                 self.set_lhs([it1, it2], -1 * rho_f_ * Dau_f_)
                 prev_row = it1
             else:
                 self.set_lhs([prev_row, prev_row], aC_); self.set_rhs([prev_row, 0], bC_)
                 aC_ = 0; bC_ = 0
                 aC_ += rho_f_ * Dau_f_
-                bC_ += rho_f_ * np.dot(np.array([value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1],
-                                       value_.faces("unit", "w")[it3][1]]), Sf_) - \
-                                       np.dot(np.array([[Df_x_, 0, 0], [0, Df_y_, 0], [0, 0, Df_z_]]) * \
-                                       value_.faces("grad", "u")[it3][1] - value_.linear_itr("grad", mesh_, [it1, it2, it3], "P"), Sf_) 
+                Df_ = np.array([[Df_x_, 0, 0], [0, Df_y_, 0], [0, 0, Df_z_]])
+                bC_ += rho_f_ * np.dot(np.array([value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1], value_.faces("unit", "w")[it3][1]]), Sf_) - \
+                                       np.dot(np.dot(Df_, (value_.faces("grad", "P")[it3][1] - value_.linear_itr("grad", mesh_, [it1, it2, it3], "P"))), Sf_) 
+
                 self.set_lhs([it1, it2], -1 * rho_f_ * Dau_f_)
                 prev_row = it1
         self.set_lhs([prev_row, prev_row], aC_); self.set_rhs([prev_row, 0], bC_)
@@ -871,31 +876,47 @@ class pcorrect(linear):
     def calc_correct(self, mesh_ : mesh, user_ : user, value_ : value, u_ref, v_ref, w_ref):
         for it1 in list(mesh_.cells.keys()):
             rho_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1)
-            pcor_C_ = -1 * rho_C_ * mesh_.cells[it1].volume * value_.cells("grad", "Pcor")[it1][1] / self.lhs[it1, it1]
-            value_.set_cells("unit", "u", it1, pcor_C_[0], add = True)
-            value_.set_cells("unit", "v", it1, pcor_C_[1], add = True)
-            value_.set_cells("unit", "w", it1, pcor_C_[2], add = True)
+            try:
+                with np.errstate(all='raise'):
+                    pcor_C_ = -1 * rho_C_ * mesh_.cells[it1].volume * value_.cells("grad", "Pcor")[it1][1] / self.lhs[it1, it1]
+                    value_.set_cells("unit", "u", it1, pcor_C_[0], add = True)
+                    value_.set_cells("unit", "v", it1, pcor_C_[1], add = True)
+                    value_.set_cells("unit", "w", it1, pcor_C_[2], add = True)
+            except FloatingPointError:
+                pass
+            except ValueError:
+                pass
             value_.set_cells("unit", "P", it1, value_.cells("unit", "Pcor")[it1][1], add = True)
         cc_ = mesh_.templates.iter("cc", "fluid")
         for it1, it2, it3 in zip(cc_[0], cc_[1], cc_[2]):
             rho_f_ = value_.calc_prop(mesh_, user_, "rho", "faces", it3)
-            Df_x_ = (mesh_.cells[it1].volume / u_ref.lhs[it1, it2] + mesh_.cells[it2].volume / u_ref.lhs[it1, it2]) / 2
-            Df_y_ = (mesh_.cells[it1].volume / v_ref.lhs[it1, it2] + mesh_.cells[it2].volume / v_ref.lhs[it1, it2]) / 2
-            Df_z_ = (mesh_.cells[it1].volume / w_ref.lhs[it1, it2] + mesh_.cells[it2].volume / w_ref.lhs[it1, it2]) / 2
             Sf_ = mesh_.geoms.Sf(False, it1, it3)
-            pcor_f_ = -1 * rho_f_ * np.dot(np.array([[Df_x_, 0, 0], [0, Df_y_, 0], [0, 0, Df_z_]]) * value_.faces("grad", "Pcor")[it3][1], Sf_)
-            value_.set_faces("unit", "u", it3, pcor_f_[0], add = True)
-            value_.set_faces("unit", "v", it3, pcor_f_[1], add = True)
-            value_.set_faces("unit", "w", it3, pcor_f_[2], add = True)
+            try:
+                with np.errstate(all='raise'):
+                    Df_x_ = (mesh_.cells[it1].volume / u_ref.lhs[it1, it2] + mesh_.cells[it2].volume / u_ref.lhs[it1, it2]) / 2
+                    Df_y_ = (mesh_.cells[it1].volume / v_ref.lhs[it1, it2] + mesh_.cells[it2].volume / v_ref.lhs[it1, it2]) / 2
+                    Df_z_ = (mesh_.cells[it1].volume / w_ref.lhs[it1, it2] + mesh_.cells[it2].volume / w_ref.lhs[it1, it2]) / 2
+                    pcor_f_ = -1 * rho_f_ * np.dot(np.array([[Df_x_, 0, 0], [0, Df_y_, 0], [0, 0, Df_z_]]) * value_.faces("grad", "Pcor")[it3][1], Sf_)
+                    value_.set_faces("unit", "u", it3, pcor_f_[0], add = True)
+                    value_.set_faces("unit", "v", it3, pcor_f_[1], add = True)
+                    value_.set_faces("unit", "w", it3, pcor_f_[2], add = True)
+            except FloatingPointError:
+                pass
+            except ValueError:
+                pass
     def iter_solve(self, mesh_ : mesh, user_ : user, value_ : value, under_relax_, tol_, max_iter_, time_step_, current_time_, u_ref, v_ref, w_ref):
         self.calc_coef(mesh_, user_, value_, u_ref, v_ref, w_ref)
         lhs_transient_, rhs_transient_ = super().calc_transient(mesh_, user_, value_, "Pcor", time_step_, current_time_)
         under_relax_b = deepcopy(rhs_transient_)
         for it1 in range(0, lhs_transient_.shape[0]):
-            lhs_transient_[it1, it1] = lhs_transient_[it1, it1] / under_relax_; under_relax_b[it1, 0] = lhs_transient_[it1, it1] * value_.cells("unit", "Pcor")[it1][1] * (1 - under_relax_)
-        A = lambda x: sparse.linalg.spsolve(lhs_transient_, x)
-        b = rhs_transient_ + under_relax_b
-        x, exitCode = sparse.linalg.gmres(A, b, tol = tol_, maxiter = max_iter_)
+            lhs_transient_[it1, it1] = lhs_transient_[it1, it1] / under_relax_
+        for it1 in range(0, rhs_transient_.shape[0]):
+            under_relax_b[it1, 0] = lhs_transient_[it1, it1] * float(value_.cells("unit", "Pcor")[it1][1]) * (1 - under_relax_)
+        A = lhs_transient_.tocsr()
+        b = rhs_transient_ + under_relax_b; b = b.tocsr()
+        M_x = lambda x: sparse.linalg.spsolve(A, x)
+        M_ = sparse.linalg.LinearOperator(A.shape, M_x)
+        x, exitCode = sparse.linalg.gmres(A, b.toarray(), tol = tol_, maxiter = max_iter_, M = M_)
         _ = value_.update_value(mesh_, "Pcor", x)
         self.calc_post_bound(mesh_, user_, value_)
         self.calc_correct(mesh_, user_, value_, u_ref, v_ref, w_ref)
@@ -927,19 +948,25 @@ class momentum(linear):
             v_[self.axis] = value_.faces("unit", coor_dict[self.axis])[it3][1]
             v_[axes[0]] = value_.faces("unit", coor_dict[axes[0]])[it3][1]
             v_[axes[1]] = value_.faces("unit", coor_dict[axes[1]])[it3][1]
-            Ret_ = rho_f_ * pow(value_.faces("unit", "k")[it3][1], 2) / (miu_f_ * value_.faces("unit", "e")[it3][1])
-            cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_ / 50, 2))
-            St_tensor_ = np.array([[value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1], value_.faces("unit", "w")[it3][1]]])
-            St_tensor_ = (St_tensor_ + np.transpose(St_tensor_)) * 0.5
-            St_ = np.sqrt(np.dot(St_tensor_, St_tensor_))
-            ts_ = np.min(np.array([value_.faces("unit", "k")[it3][1] / value_.faces("unit", "e")[it3][1], value_.calc_prop(mesh_, user_, "alpha", it3) / (pow(6, 0.5) * cmiu_ * St_)]))
-            miut_ = rho_f_ * cmiu_ * value_.faces("unit", "k")[it3][1] * ts_
+            try:
+                with np.errstate(all='raise'):
+                    Ret_ = rho_f_ * pow(value_.faces("unit", "k")[it3][1], 2) / (miu_f_ * value_.faces("unit", "e")[it3][1])
+                    cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_ / 50, 2))
+                    St_tensor_ = np.array([[value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1], value_.faces("unit", "w")[it3][1]]])
+                    St_tensor_ = (St_tensor_ + np.transpose(St_tensor_)) * 0.5
+                    St_ = np.sqrt(np.dot(St_tensor_, St_tensor_))
+                    ts_ = np.min(np.array([value_.faces("unit", "k")[it3][1] / value_.faces("unit", "e")[it3][1], value_.calc_prop(mesh_, user_, "alpha", "faces", it3) / (pow(6, 0.5) * cmiu_ * St_)]))
+                    miut_ = rho_f_ * cmiu_ * value_.faces("unit", "k")[it3][1] * ts_
+            except FloatingPointError:
+                miut_ = 0
+            except ValueError:
+                miut_ = 0
             graditr_ = value_.linear_itr("grad", mesh_, [it1, it2, it3], coor_dict[self.axis])
             if prev_row == it1:
                 aC_ += (1 - np.dot(eCF_, eCF_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
                 aC_ += (np.dot(eCF_, Sf_) / dCF_) * (miu_f_ + miut_)
-                bC += np.dot(np.dot(np.dot(graditr_, eCF_) * eCF_ - (value_.cells("grad", coor_dict[self.axis])[it1][1] + graditr_), dCf_) / 2, dCf_) * rho_f_ * np.dot(v_, Sf_)
-                bC += np.dot(graditr_ - (np.dot(graditr_, eCF_) * eCF_), Sf_) * (miu_f_ + miut_)
+                bC_ += np.dot(np.dot(graditr_, eCF_) * eCF_ - (value_.cells("grad", coor_dict[self.axis])[it1][1] + graditr_) / 2, dCf_) * rho_f_ * np.dot(v_, Sf_)
+                bC_ += np.dot(graditr_ - (np.dot(graditr_, eCF_) * eCF_), Sf_) * (miu_f_ + miut_)
                 lhs_value = (np.dot(eCF_, dCf_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
                 lhs_value_diff = (-1) * (np.dot(eCF_, Sf_) / dCF_) * (miu_f_ + miut_)
                 self.set_lhs([it1, it2], lhs_value); self.set_lhs([it1, it2], lhs_value_diff, add = True)
@@ -951,8 +978,8 @@ class momentum(linear):
                 aC_ = 0; bC_ = 0
                 aC_ += (1 - np.dot(eCF_, eCF_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
                 aC_ += (np.dot(eCF_, Sf_) / dCF_) * (miu_f_ + miut_)
-                bC += np.dot(np.dot(np.dot(graditr_, eCF_) * eCF_ - (value_.cells("grad", coor_dict[self.axis])[it1][1] + graditr_), dCf_) / 2, dCf_) * rho_f_ * np.dot(v_, Sf_)
-                bC += np.dot(graditr_ - (np.dot(graditr_, eCF_) * eCF_), Sf_) * (miu_f_ + miut_)
+                bC_ += np.dot(np.dot(graditr_, eCF_) * eCF_ - (value_.cells("grad", coor_dict[self.axis])[it1][1] + graditr_) / 2, dCf_) * rho_f_ * np.dot(v_, Sf_)
+                bC_ += np.dot(graditr_ - (np.dot(graditr_, eCF_) * eCF_), Sf_) * (miu_f_ + miut_)
                 lhs_value = (np.dot(eCF_, dCf_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
                 lhs_value_diff = (-1) * (np.dot(eCF_, Sf_) / dCF_) * (miu_f_ + miut_)
                 self.set_lhs([it1, it2], lhs_value); self.set_lhs([it1, it2], lhs_value, add = True)
@@ -984,17 +1011,32 @@ class momentum(linear):
             dperp_ = pow(linalg.norm(cgrad_this)**2 + 2 * cgrad_this, 0.5) - linalg.norm(cgrad_this)
             Sf_ = mesh_.geoms.Sf(False, row, col)
             eCf_ = mesh_.geoms.eCf(False, row, col)
-            lhs_value = miu_f_ * Sf_[self.axis] * (1 - eCf_[self.axis]**2) / dperp_
-            rhs_value = (miu_f_ * Sf_[self.axis] / dperp_) * ((funit_this * (1 - eCf_[self.axis]**2)) + \
-                        ((cunit_axes0 - funit_axes0) * eCf_[self.axis] * eCf_[axes[0]]) + \
-                        ((cunit_axes1 - funit_axes1) * eCf_[self.axis] * eCf_[axes[1]])) - \
-                        value_.faces("unit", "P")[col][1] * Sf_[self.axis]
+            try:
+                with np.errstate(all='raise'):
+                    lhs_value = miu_f_ * Sf_[self.axis] * (1 - eCf_[self.axis]**2) / dperp_
+                    rhs_value = (miu_f_ * Sf_[self.axis] / dperp_) * ((funit_this * (1 - eCf_[self.axis]**2)) + \
+                                ((cunit_axes0 - funit_axes0) * eCf_[self.axis] * eCf_[axes[0]]) + \
+                                ((cunit_axes1 - funit_axes1) * eCf_[self.axis] * eCf_[axes[1]])) - \
+                                value_.faces("unit", "P")[col][1] * Sf_[self.axis]
+            except FloatingPointError:
+                lhs_value = 0.00
+                rhs_value = 0.00
+            except ValueError:
+                lhs_value = 0.00
+                rhs_value = 0.00
             self.set_lhs([row, row], lhs_value, add = True)
+            # darcy friction
             area_ = np.sum(np.array([mesh_.faces[it1].area for it1 in mesh_.cells[row].faces]))
-            Re_ = rho_C_ * np.sqrt(np.sum(np.array([map(lambda x: x**2, v_)]))) * mesh_.cells[row].volume / (area_ * miu_C_)
-            tau_ = v_[self.axis] * 8 * rho_C_ / Re_
-            rhs_value = -1 * tau_ / (rho_C_ * 2 * mesh_.cells[row].volume / mesh_.faces[col].area)
-            self.set_rhs([row, 0], rhs_value, add = True)
+            try:
+                with np.errstate(all='raise'):
+                    Re_ = rho_C_ * np.sqrt(np.sum(np.array(list(map(lambda x: float(x)**2, v_))))) * mesh_.cells[row].volume / (area_ * miu_C_)
+                    tau_ = v_[self.axis] * 8 * rho_C_ / Re_
+                    rhs_value += -1 * tau_ / (rho_C_ * 2 * mesh_.cells[row].volume / mesh_.faces[col].area)
+                    self.set_rhs([row, 0], rhs_value, add = True)
+            except FloatingPointError:
+                pass
+            except ValueError:
+                pass
         elif "inlet" in mesh_.faces[col].boundary:
             Sf_ = mesh_.geoms.Sf(False, row, col)
             eCf_ = mesh_.geoms.eCf(False, row, col)
@@ -1088,27 +1130,39 @@ class momentum(linear):
                     v_[0] = value_.cells("unit", "u")[it1][1]
                     v_[1] = value_.cells("unit", "v")[it1][1]
                     v_[2] = value_.cells("unit", "w")[it1][1]
-                    v_val_ = np.sqrt(np.sum(np.array([map(lambda x: x**2, v_)])))
+                    v_val_ = np.sqrt(np.sum(np.array(list(map(lambda x: float(x)**2, v_)))))
                     Sf_wall_ = -1 * mesh_.geoms.Sf(False, it1, it3)
                     v_parallel_ = np.cross(np.cross(v_, Sf_wall_), Sf_wall_)
-                    v_parallel_val_ = np.sqrt(np.sum(np.array([map(lambda x: x**2), v_parallel_])))
-                    check = np.dot(v_val_, v_parallel_)
+                    v_parallel_val_ = np.sqrt(np.sum(np.array(list(map(lambda x: float(x)**2, v_parallel_)))))
+                    check = np.dot(v_, v_parallel_)
                     if check < 0:
                         v_parallel_ = -1 * v_parallel_
-                    theta = math.acos(np.dot(v_, v_parallel_) / (v_val_ * v_parallel_val_))
+                    try:
+                        with np.errstate(all='raise'):
+                            theta = math.acos(np.dot(v_, v_parallel_) / (v_val_ * v_parallel_val_))
+                    except FloatingPointError:
+                        theta = 0.00
+                    except ValueError:
+                        theta = 0.00
                     v_val_ = v_val_ * math.sin(theta)
-                    Ret_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1) * pow(value_.cells("unit", "k")[it1][1], 2) / \
-                        (value_.calc_prop(mesh_, user_, "miu", "cells", it1) * value_.cells("unit", "e")[it1][1])
-                    cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_/50, 2))
-                    gradCfluid_ = value_.cells("grad", coor_dict[self.axis])[it1][1]
-                    dperp_ = (np.sqrt(2 * value_.cells("unit", coor_dict[self.axis]) - 1) * \
-                            np.sqrt(np.sum(np.array([map(lambda x:x**2, gradCfluid_)]))))
-                    dCplus_ = dperp_ * pow(cmiu_, 0.25) * np.sqrt(value_.cells("unit", "k")[it1][1]) * \
-                            value_.calc_prop(mesh_, user_, "rho", "cells", it1) / value_.calc_prop(mesh_, user_, "miu", "cells", it1)
-                    miutau_ = v_val_ * 0.41 / (np.log(dCplus_) + 5.25)
-                    dplusv_ = dperp_ * miutau_ * value_.calc_prop(mesh_, user_, "rho", "cells", it1) / value_.calc_prop(mesh_, user_, "miu", "cells", it1)
-                    vplus_ = np.log(dplusv_) / 0.41 + 5.25
-                    value_.set_cells("unit", coor_dict[self.axis], it1, vplus_)   
+                    try:
+                        with np.errstate(all='raise'):
+                            Ret_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1) * pow(value_.cells("unit", "k")[it1][1], 2) / \
+                                (value_.calc_prop(mesh_, user_, "miu", "cells", it1) * value_.cells("unit", "e")[it1][1])
+                            cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_/50, 2))
+                            gradCfluid_ = value_.cells("grad", coor_dict[self.axis])[it1][1]
+                            dperp_ = (np.sqrt(2 * value_.cells("unit", coor_dict[self.axis]) - 1) * \
+                                    np.sqrt(np.sum(np.array(list(map(lambda x:float(x)**2, gradCfluid_))))))
+                            dCplus_ = dperp_ * pow(cmiu_, 0.25) * np.sqrt(value_.cells("unit", "k")[it1][1]) * \
+                                    value_.calc_prop(mesh_, user_, "rho", "cells", it1) / value_.calc_prop(mesh_, user_, "miu", "cells", it1)
+                            utau_ = v_val_ * 0.41 / (np.log(dCplus_) + 5.25)
+                            dplusv_ = dperp_ * utau_ * value_.calc_prop(mesh_, user_, "rho", "cells", it1) / value_.calc_prop(mesh_, user_, "miu", "cells", it1)
+                            vplus_ = np.log(dplusv_) / 0.41 + 5.25
+                            value_.set_cells("unit", coor_dict[self.axis], it1, vplus_)
+                    except FloatingPointError:
+                        pass
+                    except ValueError:
+                        pass
         else:
             pass
     def iter_solve(self, mesh_ : mesh, user_ : user, value_ : value, under_relax_, tol_, max_iter_, time_step_, current_time_):
@@ -1118,10 +1172,13 @@ class momentum(linear):
         under_relax_b = deepcopy(rhs_transient_)
         for it1 in range(0, lhs_transient_.shape[0]):
             lhs_transient_[it1, it1] = lhs_transient_[it1, it1] / under_relax_
-            under_relax_[it1, 0] = lhs_transient_[it1, it1] * value_.cells("unit", coor_dict[self.axis])[it1][1] * (1 - under_relax_)
-        A = lambda x: sparse.linalg.spsolve(lhs_transient_, x) 
-        b = rhs_transient_ + under_relax_b
-        x, exitCode = sparse.linalg.gmres(A, b, tol = tol_, maxiter = max_iter_)
+        for it1 in range(0, rhs_transient_.shape[0]):
+            under_relax_b[it1, 0] = lhs_transient_[it1, it1] * float(value_.cells("unit", coor_dict[self.axis])[it1][1]) * (1 - under_relax_)
+        A = lhs_transient_.tocsr()
+        b = rhs_transient_ + under_relax_b; b = b.tocsr()
+        M_x = lambda x: sparse.linalg.spsolve(A, x)
+        M_ = sparse.linalg.LinearOperator(A.shape, M_x)
+        x, exitCode = sparse.linalg.gmres(A, b.toarray(), tol = tol_, maxiter = max_iter_, M = M_)
         return x
 class turb_k(linear):
     def __init__(self, mesh_ : mesh):
@@ -1141,23 +1198,23 @@ class turb_k(linear):
             eCF_ = mesh_.geoms.eCF(False, it1, it2)
             dCF_ = mesh_.geoms.dCF(True, it1, it2)
             v_ = np.array([value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1], value_.faces("unit", "w")[it3][1]])
-            Ret_ = rho_f_ * pow(value_.faces("unit", "k")[it3][1], 2) / (miu_f_ * value_.faces("unit", "e")[it3][1])
-            cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + float(Ret_) / 50, 2))
-            St_tensor_ = np.array([[value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1], value_.faces("unit", "w")[it3][1]]])
-            St_tensor_ = (St_tensor_ + np.transpose(St_tensor_))
-            St_ = np.sqrt(np.dot(St_tensor_, St_tensor_))
             try:
-                with np.errstate(divide='raise'):
+                with np.errstate(all='raise'):
+                    Ret_ = rho_f_ * pow(value_.faces("unit", "k")[it3][1], 2) / (miu_f_ * value_.faces("unit", "e")[it3][1])
+                    cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + float(Ret_) / 50, 2))
+                    St_tensor_ = np.array([[value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1], value_.faces("unit", "w")[it3][1]]])
+                    St_tensor_ = (St_tensor_ + np.transpose(St_tensor_))
+                    St_ = np.sqrt(np.dot(St_tensor_, St_tensor_))
                     ts_ = np.min(np.array([value_.faces("unit", "k")[it3][1] / value_.faces("unit", "e")[it3][1], value_.calc_prop(mesh_, user_, "alpha", "faces", it3) / (pow(6, 0.5) * cmiu_ * St_)]))
                     miut_ = rho_f_ * cmiu_ * value_.faces("unit", "k")[it3][1] * ts_
+            except ValueError:
+                miut_ = 0
             except FloatingPointError:
                 miut_ = 0
             graditr_ = value_.linear_itr("grad", mesh_, [it1, it2, it3], "k")
             if prev_row == it1:
                 aC_ += (1 - np.dot(eCF_, eCF_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
                 aC_ += (np.dot(eCF_, Sf_) / dCF_) * (miu_f_ + miut_)
-                print(np.dot(graditr_, eCF_)); print(np.dot(np.dot(graditr_, eCF_) * eCF_ - (value_.cells("grad", "k")[it1][1] + graditr_), dCf_))
-                print(np.dot(np.dot(np.dot(graditr_, eCF_) * eCF_ - (value_.cells("grad", "k")[it1][1] + graditr_), dCf_) / 2, dCf_)); print(np.dot(v_, Sf_))
                 bC_ += np.dot(np.dot(graditr_, eCF_) * eCF_ - (value_.cells("grad", "k")[it1][1] + graditr_) / 2, dCf_) * rho_f_ * np.dot(v_, Sf_)
                 bC_ += np.dot(graditr_ - (np.dot(graditr_, eCF_) * eCF_), Sf_) * (miu_f_ + miut_)
                 lhs_value = (np.dot(eCF_, dCf_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
@@ -1170,22 +1227,23 @@ class turb_k(linear):
                 gradC_w_ = value_.cells("grad", "w")[prev_row][1]
                 phi_v_ = 2 * (gradC_u_[0]**2 + gradC_v_[1]**2 + gradC_w_[2]**2) + pow(gradC_u_[1] + gradC_v_[0], 2) \
                          + pow(gradC_u_[2] + gradC_w_[0], 2) + pow(gradC_v_[2] + gradC_w_[1], 2)
-                Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * pow(value_.cells("unit", "k")[prev_row][1], 2) / \
-                         (value_.calc_prop(mesh_, user_, "miu", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1])
-                cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
-                St_tensor_C_ = np.array([value_.cells("grad", "u")[prev_row][1], value_.cells("grad", "v")[prev_row][1], value_.cells("grad", "w")[prev_row][1]])
-                St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5
-                St_C_ = np.sqrt(np.dot(St_tensor_C_, St_tensor_C_))
                 try:
-                    with np.errstate(divide='raise'):
+                    with np.errstate(all='raise'):
+                        Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * pow(value_.cells("unit", "k")[prev_row][1], 2) / \
+                                (value_.calc_prop(mesh_, user_, "miu", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1])
+                        cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
+                        St_tensor_C_ = np.array([value_.cells("grad", "u")[prev_row][1], value_.cells("grad", "v")[prev_row][1], value_.cells("grad", "w")[prev_row][1]])
+                        St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5
+                        St_C_ = np.sqrt(np.dot(St_tensor_C_, St_tensor_C_))
                         ts_C_ = np.min(np.array([value_.cells("unit", "k")[prev_row][1] / value_.cells("unit", "e")[prev_row][1], \
                                 value_.calc_prop(mesh_, user_, "alpha", "cells", prev_row) / (np.sqrt(6) * cmiu_C_ * St_C_)]))
                         miut_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * cmiu_C_ * value_.cells("unit", "k")[prev_row][1] * ts_C_
                 except FloatingPointError:
                     miut_C_ = 0
+                except ValueError:
+                    miut_C_ = 0
                 bC_ += (miut_C_ * phi_v_ - value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1]) \
                        * mesh_.cells[prev_row].volume
-                print(aC_, bC_)
                 self.set_lhs([prev_row, prev_row], aC_); self.set_rhs([prev_row, 0], bC_)
                 aC_ = 0; bC_ = 0
                 aC_ += (1 - np.dot(eCF_, eCF_) / (2 * dCF_)) * rho_f_ * np.dot(v_, Sf_)
@@ -1201,22 +1259,23 @@ class turb_k(linear):
         gradC_w_ = value_.cells("grad", "w")[prev_row][1]
         phi_v_ = 2 * (gradC_u_[0]**2 + gradC_v_[1]**2 + gradC_w_[2]**2) + pow(gradC_u_[1] + gradC_v_[0], 2) \
                     + pow(gradC_u_[2] + gradC_w_[0], 2) + pow(gradC_v_[2] + gradC_w_[1], 2)
-        Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * pow(value_.cells("unit", "k")[prev_row][1], 2) / \
-                    (value_.calc_prop(mesh_, user_, "miu", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1])
-        cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
-        St_tensor_C_ = np.array([value_.cells("grad", "u")[prev_row][1], value_.cells("grad", "v")[prev_row][1], value_.cells("grad", "w")[prev_row][1]])
-        St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5
-        St_C_ = np.sqrt(np.dot(St_tensor_C_, St_tensor_C_))
         try:
-            with np.errstate(divide='raise'):
+            with np.errstate(all='raise'):
+                Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * pow(value_.cells("unit", "k")[prev_row][1], 2) / \
+                            (value_.calc_prop(mesh_, user_, "miu", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1])
+                cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
+                St_tensor_C_ = np.array([value_.cells("grad", "u")[prev_row][1], value_.cells("grad", "v")[prev_row][1], value_.cells("grad", "w")[prev_row][1]])
+                St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5
+                St_C_ = np.sqrt(np.dot(St_tensor_C_, St_tensor_C_))
                 ts_C_ = np.min(np.array([value_.cells("unit", "k")[prev_row][1] / value_.cells("unit", "e")[prev_row][1], \
                         value_.calc_prop(mesh_, user_, "alpha", "cells", prev_row) / (np.sqrt(6) * cmiu_C_ * St_C_)]))
                 miut_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * cmiu_C_ * value_.cells("unit", "k")[prev_row][1] * ts_C_
         except FloatingPointError:
             miut_C_ = 0
+        except ValueError:
+            miut_C_ = 0
         bC_ += (miut_C_ * phi_v_ - value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1]) \
                 * mesh_.cells[prev_row].volume
-        print(aC_, bC_)
         self.set_lhs([prev_row, prev_row], aC_); self.set_rhs([prev_row, 0], bC_)
         fc_ = mesh_.templates.iter("fc", "fluid")
         for it1, it2, it3 in zip(fc_[0], fc_[1], fc_[2]):
@@ -1311,10 +1370,16 @@ class turb_k(linear):
             conj_ = mesh_.templates.iter("cc", "conj")
             for it1, it2, it3 in zip(conj_[0], conj_[1], conj_[2]):
                 if "fluid" in mesh_.cells[it1].domain[0]:
-                    Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1) * pow(value_.cells("unit", "k")[it1][1], 2) / \
-                            (value_.calc_prop(mesh_, user_, "miu", "cells", it1) * value_.cells("unit", "e")[it1][1])
-                    cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
-                    value_.set_cells("unit", "k", it1, 1 / np.sqrt(cmiu_C_))
+                    try:
+                        with np.errstate(all='raise'):
+                            Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1) * pow(value_.cells("unit", "k")[it1][1], 2) / \
+                                    (value_.calc_prop(mesh_, user_, "miu", "cells", it1) * value_.cells("unit", "e")[it1][1])
+                            cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
+                            value_.set_cells("unit", "k", it1, 1 / np.sqrt(cmiu_C_))
+                    except FloatingPointError:
+                        pass
+                    except ValueError:
+                        pass
         else:
             pass
     def iter_solve(self, mesh_ : mesh, user_ : user, value_ : value, under_relax_, tol_, max_iter_, time_step_, current_time_):
@@ -1330,7 +1395,6 @@ class turb_k(linear):
         M_x = lambda x: sparse.linalg.spsolve(A, x)
         M_ = sparse.linalg.LinearOperator(A.shape, M_x)
         x, exitCode = sparse.linalg.gmres(A, b.toarray(), tol = tol_, maxiter = max_iter_, M = M_)
-        print(A); print(b); print(x)
         return x
 class turb_e(linear):
     def __init__(self, mesh_ : mesh):
@@ -1350,16 +1414,18 @@ class turb_e(linear):
             eCF_ = mesh_.geoms.eCF(False, it1, it2)
             dCF_ = mesh_.geoms.dCF(True, it1, it2)
             v_ = np.array([value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1], value_.faces("unit", "w")[it3][1]])
-            Ret_ = rho_f_ * pow(value_.faces("unit", "k")[it3][1], 2) / (miu_f_ * value_.faces("unit", "e")[it3][1])
-            cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_ / 50, 2))
-            St_tensor_ = np.array([[value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1], value_.faces("unit", "w")[it3][1]]])
-            St_tensor_ = (St_tensor_ + np.transpose(St_tensor_))
-            St_ = np.sqrt(np.dot(St_tensor_, St_tensor_))
             try:
-                with np.errstate(divide='raise'):
+                with np.errstate(all='raise'):
+                    Ret_ = rho_f_ * pow(value_.faces("unit", "k")[it3][1], 2) / (miu_f_ * value_.faces("unit", "e")[it3][1])
+                    cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_ / 50, 2))
+                    St_tensor_ = np.array([[value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1], value_.faces("unit", "w")[it3][1]]])
+                    St_tensor_ = (St_tensor_ + np.transpose(St_tensor_))
+                    St_ = np.sqrt(np.dot(St_tensor_, St_tensor_))
                     ts_ = np.min(np.array([value_.faces("unit", "k")[it3][1] / value_.faces("unit", "e")[it3][1], value_.calc_prop(mesh_, user_, "alpha", "faces", it3) / (pow(6, 0.5) * cmiu_ * St_)]))
                     miut_ = rho_f_ * cmiu_ * value_.faces("unit", "k")[it3][1] * ts_
             except FloatingPointError:
+                miut_ = 0
+            except ValueError:
                 miut_ = 0
             graditr_ = value_.linear_itr("grad", mesh_, [it1, it2, it3], "e")
             if prev_row == it1:
@@ -1377,14 +1443,14 @@ class turb_e(linear):
                 gradC_w_ = value_.cells("grad", "w")[prev_row][1]
                 phi_v_ = 2 * (gradC_u_[0]**2 + gradC_v_[1]**2 + gradC_w_[2]**2) + pow(gradC_u_[1] + gradC_v_[0], 2) \
                          + pow(gradC_u_[2] + gradC_w_[0], 2) + pow(gradC_v_[2] + gradC_w_[1], 2)
-                Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * pow(value_.cells("unit", "k")[prev_row][1], 2) / \
-                         (value_.calc_prop(mesh_, user_, "miu", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1])
-                cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
-                St_tensor_C_ = np.array([value_.cells("grad", "u")[prev_row][1], value_.cells("grad", "v")[prev_row][1], value_.cells("grad", "w")[prev_row][1]])
-                St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5
-                St_C_ = np.sqrt(np.dot(St_tensor_C_, St_tensor_C_))
                 try:
-                    with np.errstate(divide='raise'):
+                    with np.errstate(all='raise'):
+                        Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * pow(value_.cells("unit", "k")[prev_row][1], 2) / \
+                                (value_.calc_prop(mesh_, user_, "miu", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1])
+                        cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
+                        St_tensor_C_ = np.array([value_.cells("grad", "u")[prev_row][1], value_.cells("grad", "v")[prev_row][1], value_.cells("grad", "w")[prev_row][1]])
+                        St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5
+                        St_C_ = np.sqrt(np.dot(St_tensor_C_, St_tensor_C_))
                         ts_C_ = np.min(np.array([value_.cells("unit", "k")[prev_row][1] / value_.cells("unit", "e")[prev_row][1], \
                                 value_.calc_prop(mesh_, user_, "alpha", "cells", prev_row) / (np.sqrt(6) * cmiu_C_ * St_C_)]))
                         miut_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * cmiu_C_ * value_.cells("unit", "k")[prev_row][1] * ts_C_
@@ -1392,6 +1458,8 @@ class turb_e(linear):
                         bC_ += (1.44 * miut_C_ * phi_v_ / ts_C_ - ceps2_ * value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1] / ts_C_) \
                             * mesh_.cells[prev_row].volume
                 except FloatingPointError:
+                    pass
+                except ValueError:
                     pass
                 self.set_lhs([prev_row, prev_row], aC_); self.set_rhs([prev_row, 0], bC_)
                 aC_ = 0; bC_ = 0
@@ -1408,14 +1476,14 @@ class turb_e(linear):
         gradC_w_ = value_.cells("grad", "w")[prev_row][1]
         phi_v_ = 2 * (gradC_u_[0]**2 + gradC_v_[1]**2 + gradC_w_[2]**2) + pow(gradC_u_[1] + gradC_v_[0], 2) \
                     + pow(gradC_u_[2] + gradC_w_[0], 2) + pow(gradC_v_[2] + gradC_w_[1], 2)
-        Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * pow(value_.cells("unit", "k")[prev_row][1], 2) / \
-                    (value_.calc_prop(mesh_, user_, "miu", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1])
-        cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
-        St_tensor_C_ = np.array([value_.cells("grad", "u")[prev_row][1], value_.cells("grad", "v")[prev_row][1], value_.cells("grad", "w")[prev_row][1]])
-        St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5
-        St_C_ = np.sqrt(np.dot(St_tensor_C_, St_tensor_C_))
         try:
-            with np.errstate(divide='raise'):
+            with np.errstate(all='raise'):
+                Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * pow(value_.cells("unit", "k")[prev_row][1], 2) / \
+                            (value_.calc_prop(mesh_, user_, "miu", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1])
+                cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
+                St_tensor_C_ = np.array([value_.cells("grad", "u")[prev_row][1], value_.cells("grad", "v")[prev_row][1], value_.cells("grad", "w")[prev_row][1]])
+                St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5
+                St_C_ = np.sqrt(np.dot(St_tensor_C_, St_tensor_C_))
                 ts_C_ = np.min(np.array([value_.cells("unit", "k")[prev_row][1] / value_.cells("unit", "e")[prev_row][1], \
                         value_.calc_prop(mesh_, user_, "alpha", "cells", prev_row) / (np.sqrt(6) * cmiu_C_ * St_C_)]))
                 miut_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * cmiu_C_ * value_.cells("unit", "k")[prev_row][1] * ts_C_
@@ -1423,6 +1491,8 @@ class turb_e(linear):
                 bC_ += (1.44 * miut_C_ * phi_v_ / ts_C_ - ceps2_ * value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1] / ts_C_) \
                         * mesh_.cells[prev_row].volume
         except FloatingPointError:
+            pass
+        except ValueError:
             pass
         self.set_lhs([prev_row, prev_row], aC_); self.set_rhs([prev_row, 0], bC_)
         fc_ = mesh_.templates.iter("fc", "fluid")
@@ -1522,18 +1592,24 @@ class turb_e(linear):
                     v_[0] = value_.cells("unit", "u")[it1][1]
                     v_[1] = value_.cells("unit", "v")[it1][1]
                     v_[2] = value_.cells("unit", "w")[it1][1]
-                    v_val_ = np.sqrt(np.sum(np.array([map(lambda x: x**2, v_)])))
-                    Ret_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1) * pow(value_.cells("unit", "k")[it1][1], 2) / \
-                        (value_.calc_prop(mesh_, user_, "miu", "cells", it1) * value_.cells("unit", "e")[it1][1])
-                    cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_/50, 2))
-                    gradCfluid_ = value_.cells("grad", "e")[it1][1]
-                    dperp_ = (np.sqrt(2 * value_.cells("unit", "e") - 1) * \
-                            np.sqrt(np.sum(np.array([map(lambda x:x**2, gradCfluid_)]))))
-                    dCplus_ = dperp_ * pow(cmiu_, 0.25) * np.sqrt(value_.cells("unit", "k")[it1][1]) * \
-                            value_.calc_prop(mesh_, user_, "rho", "cells", it1) / value_.calc_prop(mesh_, user_, "miu", "cells", it1)
-                    miutau_ = v_val_ * 0.41 / (np.log(dCplus_) + 5.25)
-                    eplus_ = value_.calc_prop(mesh_, user_, "miu", "cells", it1) / (value_.calc_prop(mesh_, user_, "rho", it1) * miutau_ * 0.41 * dperp_)
-                    value_.set_cells("unit", "e", it1, eplus_) 
+                    v_val_ = np.sqrt(np.sum(np.array(list(map(lambda x: float(x)**2, v_)))))
+                    try:
+                        with np.errstate(all='raise'):
+                            Ret_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1) * pow(value_.cells("unit", "k")[it1][1], 2) / \
+                                (value_.calc_prop(mesh_, user_, "miu", "cells", it1) * value_.cells("unit", "e")[it1][1])
+                            cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_/50, 2))
+                            gradCfluid_ = value_.cells("grad", "e")[it1][1]
+                            dperp_ = (np.sqrt(2 * value_.cells("unit", "e") - 1) * \
+                                    np.sqrt(np.sum(np.array(list(map(lambda x:float(x)**2, gradCfluid_))))))
+                            dCplus_ = dperp_ * pow(cmiu_, 0.25) * np.sqrt(value_.cells("unit", "k")[it1][1]) * \
+                                    value_.calc_prop(mesh_, user_, "rho", "cells", it1) / value_.calc_prop(mesh_, user_, "miu", "cells", it1)
+                            utau_ = v_val_ * 0.41 / (np.log(dCplus_) + 5.25)
+                            eplus_ = value_.calc_prop(mesh_, user_, "miu", "cells", it1) / (value_.calc_prop(mesh_, user_, "rho", "cells", it1) * utau_ * 0.41 * dperp_)
+                            value_.set_cells("unit", "e", it1, eplus_)
+                    except FloatingPointError:
+                        pass
+                    except ValueError:
+                        pass
         else:
             pass
     def iter_solve(self, mesh_ : mesh, user_ : user, value_ : value, under_relax_, tol_, max_iter_, time_step_, current_time_):
@@ -1549,7 +1625,6 @@ class turb_e(linear):
         M_x = lambda x: sparse.linalg.spsolve(A, x)
         M_ = sparse.linalg.LinearOperator(A.shape, M_x)
         x, exitCode = sparse.linalg.gmres(A, b.toarray(), tol = tol_, maxiter = max_iter_, M = M_)
-        print(A); print(b); print(x)
         return x
 class energy(linear):
     def __init__(self, mesh_ : mesh):
@@ -1574,16 +1649,17 @@ class energy(linear):
                     eCF_ = mesh_.geoms.eCF(False, it1, it2)
                     dCF_ = mesh_.geoms.dCF(True, it1, it2)
                     v_ = np.array([value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1], value_.faces("unit", "w")[it3][1]])
-                    Ret_ = rho_f_ * pow(value_.faces("unit", "k")[it3][1], 2) / (miu_f_ * value_.faces("unit", "e")[it3][1])
-                    cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_ / 50, 2))
-                    St_tensor_ = np.array([[value_.faces("unit", "u")[it3][1], value_.faces("unit", "v")[it3][1], value_.faces("unit", "w")[it3][1]]])
-                    St_tensor_ = (St_tensor_ + np.transpose(St_tensor_)) * 0.5; St_tensor_T = np.transpose(St_tensor_)
-                    St_ = np.sqrt(np.dot(St_tensor_[0], St_tensor_T[0] + np.dot(St_tensor_[1], St_tensor_T[1]) + np.dot(St_tensor_[2], St_tensor_T[2])))
                     try:
-                        with np.errstate(divide='raise'):
+                        with np.errstate(all='raise'):
+                            Ret_ = rho_f_ * pow(value_.faces("unit", "k")[it3][1], 2) / (miu_f_ * value_.faces("unit", "e")[it3][1])
+                            cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_ / 50, 2))
+                            St_tensor_ = (v_ + np.transpose(v_)) * 0.5; St_tensor_T = np.transpose(St_tensor_)
+                            St_ = np.sqrt(np.dot(St_tensor_[0], St_tensor_T[0] + np.dot(St_tensor_[1], St_tensor_T[1]) + np.dot(St_tensor_[2], St_tensor_T[2])))
                             ts_ = np.min(np.array([value_.faces("unit", "k")[it3][1] / value_.faces("unit", "e")[it3][1], value_.calc_prop(mesh_, user_, "alpha", "faces", it3) / (pow(6, 0.5) * cmiu_ * St_)]))
                             miut_ = rho_f_ * cmiu_ * value_.faces("unit", "k")[it3][1] * ts_
                     except FloatingPointError:
+                        miut_ = 0
+                    except ValueError:
                         miut_ = 0
                     graditr_ = value_.linear_itr("grad", mesh_, [it1, it2, it3], "T")
                     Pr_ = miu_f_ / (rho_f_ * value_.calc_prop(mesh_, user_, "alpha", "faces", it3))
@@ -1602,17 +1678,19 @@ class energy(linear):
                         gradC_w_ = value_.cells("grad", "w")[prev_row][1]
                         phi_v_ = 2 * (gradC_u_[0]**2 + gradC_v_[1]**2 + gradC_w_[2]**2) + pow(gradC_u_[1] + gradC_v_[0], 2) \
                                 + pow(gradC_u_[2] + gradC_w_[0], 2) + pow(gradC_v_[2] + gradC_w_[1], 2)
-                        Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * pow(value_.cells("unit", "k")[prev_row][1], 2) / \
-                                (value_.calc_prop(mesh_, user_, "miu", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1])
-                        cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
-                        St_tensor_C_ = np.array([value_.cells("grad", "u")[prev_row][1], value_.cells("grad", "v")[prev_row][1], value_.cells("grad", "w")[prev_row][1]])
-                        St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5; St_tensor_C_T = np.transpose(St_tensor_C_)
-                        St_C_ = np.sqrt(np.dot(St_tensor_C_[0], St_tensor_C_T[0]) + np.dot(St_tensor_C_[1], St_tensor_C_T[1]) + np.dot(St_tensor_C_[2], St_tensor_C_T[2]))
                         try:
-                            with np.errstate(divide='raise'):
+                            with np.errstate(all='raise'):
+                                Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * pow(value_.cells("unit", "k")[prev_row][1], 2) / \
+                                        (value_.calc_prop(mesh_, user_, "miu", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1])
+                                cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
+                                St_tensor_C_ = np.array([value_.cells("grad", "u")[prev_row][1], value_.cells("grad", "v")[prev_row][1], value_.cells("grad", "w")[prev_row][1]])
+                                St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5; St_tensor_C_T = np.transpose(St_tensor_C_)
+                                St_C_ = np.sqrt(np.dot(St_tensor_C_[0], St_tensor_C_T[0]) + np.dot(St_tensor_C_[1], St_tensor_C_T[1]) + np.dot(St_tensor_C_[2], St_tensor_C_T[2]))
                                 ts_C_ = np.min(np.array([value_.cells("unit", "k")[prev_row][1] / value_.cells("unit", "e")[prev_row][1], value_.calc_prop(mesh_, user_, "alpha", "cells", prev_row) / (pow(6, 0.5) * cmiu_C_ * St_C_)]))
                                 miut_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * cmiu_C_ * value_.cells("unit", "k")[prev_row][1] * ts_C_
                         except FloatingPointError:
+                            miut_C_ = 0
+                        except ValueError:
                             miut_C_ = 0
                         bC_ += (value_.calc_prop(mesh_, user_, "miu", "cells", prev_row) + miut_C_) * phi_v_ * mesh_.cells[prev_row].volume
                         self.set_lhs([prev_row, prev_row], aC_); self.set_rhs([prev_row, 0], bC_)
@@ -1629,17 +1707,19 @@ class energy(linear):
                 gradC_w_ = value_.cells("grad", "w")[prev_row][1]
                 phi_v_ = 2 * (gradC_u_[0]**2 + gradC_v_[1]**2 + gradC_w_[2]**2) + pow(gradC_u_[1] + gradC_v_[0], 2) \
                         + pow(gradC_u_[2] + gradC_w_[0], 2) + pow(gradC_v_[2] + gradC_w_[1], 2)
-                Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * pow(value_.cells("unit", "k")[prev_row][1], 2) / \
-                        (value_.calc_prop(mesh_, user_, "miu", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1])
-                cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
-                St_tensor_C_ = np.array([value_.cells("grad", "u")[prev_row][1], value_.cells("grad", "v")[prev_row][1], value_.cells("grad", "w")[prev_row][1]])
-                St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5; St_tensor_C_T = np.transpose(St_tensor_C_)
-                St_C_ = np.sqrt(np.dot(St_tensor_C_[0], St_tensor_C_T[0]) + np.dot(St_tensor_C_[1], St_tensor_C_T[1]) + np.dot(St_tensor_C_[2], St_tensor_C_T[2]))
                 try:
-                    with np.errstate(divide='raise'):
+                    with np.errstate(all='raise'):
+                        Ret_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * pow(value_.cells("unit", "k")[prev_row][1], 2) / \
+                                (value_.calc_prop(mesh_, user_, "miu", "cells", prev_row) * value_.cells("unit", "e")[prev_row][1])
+                        cmiu_C_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_C_/50, 2))
+                        St_tensor_C_ = np.array([value_.cells("grad", "u")[prev_row][1], value_.cells("grad", "v")[prev_row][1], value_.cells("grad", "w")[prev_row][1]])
+                        St_tensor_C_ = (St_tensor_C_ + np.transpose(St_tensor_C_)) * 0.5; St_tensor_C_T = np.transpose(St_tensor_C_)
+                        St_C_ = np.sqrt(np.dot(St_tensor_C_[0], St_tensor_C_T[0]) + np.dot(St_tensor_C_[1], St_tensor_C_T[1]) + np.dot(St_tensor_C_[2], St_tensor_C_T[2]))
                         ts_C_ = np.min(np.array([value_.cells("unit", "k")[prev_row][1] / value_.cells("unit", "e")[prev_row][1], value_.calc_prop(mesh_, user_, "alpha", "cells", prev_row) / (pow(6, 0.5) * cmiu_C_ * St_C_)]))
                         miut_C_ = value_.calc_prop(mesh_, user_, "rho", "cells", prev_row) * cmiu_C_ * value_.cells("unit", "k")[prev_row][1] * ts_C_
                 except FloatingPointError:
+                    miut_C_ = 0
+                except ValueError:
                     miut_C_ = 0
                 bC_ += (value_.calc_prop(mesh_, user_, "miu", "cells", prev_row) + miut_C_) * phi_v_ * mesh_.cells[prev_row].volume
                 self.set_lhs([prev_row, prev_row], aC_); self.set_rhs([prev_row, 0], bC_)
@@ -1687,10 +1767,12 @@ class energy(linear):
             Tsky_ = 0.0552 * pow(Tamb_, 1.5)
             Tf_ = value_.faces("unit", "T")[col][1]
             try:
-                with np.errstate(divide='raise'):
+                with np.errstate(all='raise'):
                     hsky_ = 5.67 * pow(10, -8) * value_.calc_prop(mesh_, user_, "eps", "cells", row) * \
                             (Tf_ + Tsky_) * (Tf_**2 + Tsky_**2) * (Tf_ - Tsky_) / (Tf_ - Tamb_)
             except FloatingPointError:
+                hsky_ = 0.00
+            except ValueError:
                 hsky_ = 0.00
             Tfilm_ = (Tf_ + Tamb_) / 2
             rho_film_ = 1 / HAPropsSI("Vha", "P", float(user_.constants.loc[0, "Pamb"]), "T", float(Tfilm_), "W", float(user_.constants.loc[0, "Wamb"]))
@@ -1704,22 +1786,17 @@ class energy(linear):
             else:
                 Nu_N_ = 0.15 * pow(RaL_, 0.25)
             hconv_ = Nu_N_ * k_film_ / np.sqrt(mesh_.faces[col].area)
-            print(RaL_, Nu_N_, k_film_, hsky_, hconv_)
             rhs_value = -1 * (hsky_ + hconv_) * (Tf_ - Tamb_) * mesh_.geoms.Sf(True, row, col)
-            print("hamb", rhs_value)
             self.set_rhs([row, 0], rhs_value, add = True)
-            print("hamb", self.rhs[row, 0])
         elif any(["irr" in it1 for it1 in mesh_.faces[col].boundary]) is True:
             # Von Neumann
             source_id = [it1 for it1 in mesh_.faces[col].boundary if "irr" in it1][0]
             rhs_value = user_.sources.loc[0, source_id] * mesh_.geoms.Sf(True, row, col)
             self.set_rhs([row, 0], rhs_value, add = True)
-            print("irr", self.rhs[row, 0])
         elif any(["s2s" in it1 for it1 in mesh_.faces[col].boundary]) is True:
             # Von Neumann
             rhs_value = value_.faces("unit", "q")[col][1] * mesh_.geoms.Sf(True, row, col)
             self.set_rhs([row, 0], rhs_value, add = True)
-            print("s2s", self.rhs[row, 0])
         elif "inlet" in mesh_.faces[col].boundary:
             # specified value; zero gradient at inlet
             Sf_ = mesh_.geoms.Sf(False, row, col)
@@ -1740,7 +1817,6 @@ class energy(linear):
             Tin_ =  user_.constants.loc[0, "Tamb"] 
             rhs_value = -1 * value_.calc_prop(mesh_, user_, "cp", "faces", col) * (value_.calc_prop(mesh_, user_, "rho", "faces", col) * np.dot(vin_, Sf_)) * (Tin_ + np.dot(grad_Tin_, dCf_))
             self.set_rhs([row, 0], rhs_value, add = True)
-            print("inlet", self.rhs[row, 0])
         elif "outlet" in mesh_.faces[col].boundary:
             # fully developed flow; zero gradient at outlet
             Sf_ = mesh_.geoms.Sf(False, row, col)
@@ -1763,7 +1839,6 @@ class energy(linear):
                                       np.dot(grad_Tout_, dCf_))
             self.set_lhs([row, row], lhs_value, add = True)
             self.set_rhs([row, 0], rhs_value, add = True)
-            print("outlet", self.rhs[row, 0])
         else:
             pass
     def calc_conj(self, mesh_, user_ : user, value_ : value, id_ : list):
@@ -1777,21 +1852,25 @@ class energy(linear):
         rho_ = value_.calc_prop(mesh_, user_, "rho", "cells", fluid_id)
         miu_ = value_.calc_prop(mesh_, user_, "miu", "cells", fluid_id)
         cp_ = value_.calc_prop(mesh_, user_, "cp", "cells", fluid_id)
-        Ret_ = rho_ * pow(value_.cells("unit", "k")[fluid_id][1], 2) / (miu_ * value_.cells("unit", "e")[fluid_id][1])
-        cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_/50, 2))
-        hb_ = rho_ * cp_ * pow(cmiu_, 0.25) * np.sqrt(value_.cells("unit", "k")[fluid_id][1]) / value_.cells("unit", "T")[fluid_id][1]
+        try:
+            with np.errstate(all='raise'):
+                Ret_ = rho_ * pow(value_.cells("unit", "k")[fluid_id][1], 2) / (miu_ * value_.cells("unit", "e")[fluid_id][1])
+                cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_/50, 2))
+                hb_ = rho_ * cp_ * pow(cmiu_, 0.25) * np.sqrt(value_.cells("unit", "k")[fluid_id][1]) / value_.cells("unit", "T")[fluid_id][1]
+        except FloatingPointError:
+            hb_ = 0.00
+        except ValueError:
+            hb_ = 0.00
         graditr_ = value_.linear_itr("grad", mesh_, id_, "T")
         if fluid_id == id_[0]:
             lhs_value = hb_ * np.dot(mesh_.geoms.eCF(False, fluid_id, solid_id), mesh_.geoms.dCf(False, fluid_id, id_[2])) * mesh_.geoms.Sf(True, fluid_id, id_[2]) / mesh_.geoms.dCF(True, fluid_id, solid_id)
             rhs_value = hb_ * np.dot((graditr_ - np.dot(graditr_, mesh_.geoms.eCF(False, fluid_id, solid_id)) * mesh_.geoms.eCF(False, fluid_id, solid_id)), mesh_.geoms.dCf(False, fluid_id, solid_id))
-            print(id_, lhs_value, rhs_value)
             self.set_lhs([fluid_id, fluid_id], lhs_value, add = True)
             self.set_lhs([fluid_id, solid_id], -1 * lhs_value, add = True)
             self.set_rhs([fluid_id, 0], rhs_value, add = True)
         else:
             lhs_value = hb_ * np.dot(mesh_.geoms.eCF(False, solid_id, fluid_id), mesh_.geoms.dCf(False, solid_id, id_[2])) * mesh_.geoms.Sf(True, solid_id, id_[2]) / mesh_.geoms.dCF(True, solid_id, fluid_id)
             rhs_value = hb_ * np.dot((graditr_ - np.dot(graditr_, mesh_.geoms.eCF(False, solid_id, fluid_id)) * mesh_.geoms.eCF(False, solid_id, fluid_id)), mesh_.geoms.dCf(False, solid_id, fluid_id))
-            print(id_, lhs_value, rhs_value)
             self.set_lhs([solid_id, solid_id], lhs_value, add = True)
             self.set_lhs([solid_id, fluid_id], -1 * lhs_value, add = True)
             self.set_rhs([solid_id, 0], rhs_value, add = True) 
@@ -1844,22 +1923,24 @@ class energy(linear):
                     v_[1] = value_.cells("unit", "v")[it1][1]
                     v_[2] = value_.cells("unit", "w")[it1][1]
                     v_val_ = np.sqrt(np.sum(np.array([pow(it4, 2) for it4 in v_])))
-                    Ret_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1) * pow(value_.cells("unit", "k")[it1][1], 2) / \
-                        (value_.calc_prop(mesh_, user_, "miu", "cells", it1) * value_.cells("unit", "e")[it1][1])
-                    cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_/50, 2))
-                    gradCfluid_ = value_.cells("grad", "T")[it1][1]; val_gradCfluid = np.sqrt(np.sum(np.array([pow(it4, 2) for it4 in gradCfluid_])))
-                    dperp_ = pow(2 * value_.cells("unit", "T")[it1][1] - 1, 0.5) * val_gradCfluid
-                    dCplus_ = dperp_ * pow(cmiu_, 0.25) * np.sqrt(value_.cells("unit", "T")[it1][1]) * \
-                            value_.calc_prop(mesh_, user_, "rho", "cells", it1) / value_.calc_prop(mesh_, user_, "miu", "cells", it1)
                     try:
-                        with np.errstate(divide='raise'):
-                            miutau_ = v_val_ * 0.41 / math.log(dCplus_) + 5.25
-                            dplusT_ = dperp_ * miutau_ * value_.calc_prop(mesh_, user_, "rho", "cells", it1) / value_.calc_prop(mesh_, user_, "miu", "cells", it1)
+                        with np.errstate(all='raise'):
+                            Ret_ = value_.calc_prop(mesh_, user_, "rho", "cells", it1) * pow(value_.cells("unit", "k")[it1][1], 2) / \
+                                (value_.calc_prop(mesh_, user_, "miu", "cells", it1) * value_.cells("unit", "e")[it1][1])
+                            cmiu_ = 0.09 * math.exp(-3.4 / pow(1 + Ret_/50, 2))
+                            gradCfluid_ = value_.cells("grad", "T")[it1][1]; val_gradCfluid = np.sqrt(np.sum(np.array([pow(it4, 2) for it4 in gradCfluid_])))
+                            dperp_ = pow(2 * value_.cells("unit", "T")[it1][1] - 1, 0.5) * val_gradCfluid
+                            dCplus_ = dperp_ * pow(cmiu_, 0.25) * np.sqrt(value_.cells("unit", "T")[it1][1]) * \
+                            value_.calc_prop(mesh_, user_, "rho", "cells", it1) / value_.calc_prop(mesh_, user_, "miu", "cells", it1)
+                            utau_ = v_val_ * 0.41 / math.log(dCplus_) + 5.25
+                            dplusT_ = dperp_ * utau_ * value_.calc_prop(mesh_, user_, "rho", "cells", it1) / value_.calc_prop(mesh_, user_, "miu", "cells", it1)
                             Pr_ = value_.calc_prop(mesh_, user_, "miu", "cells", it1) / (value_.calc_prop(mesh_, user_, "rho", "cells", it1) * value_.calc_prop(mesh_, user_, "alpha", "cells", it1))
                             beta_ = pow(3.85 * pow(Pr_, 1/3) - 1.3, 2) + 2.12 * math.log(Pr_)
                             Tplus_ = 2.21 * math.log(abs(dplusT_)) + beta_ * Pr_
                             value_.set_cells("unit", "T", it1, Tplus_) 
                     except FloatingPointError:
+                        pass
+                    except ValueError:
                         pass
         else:
             pass
@@ -1876,7 +1957,6 @@ class energy(linear):
         M_x = lambda x: sparse.linalg.spsolve(A, x)
         M_ = sparse.linalg.LinearOperator(A.shape, M_x)
         x, exitCode = sparse.linalg.gmres(A, b.toarray(), tol = tol_, maxiter = max_iter_, M = M_)
-        print(A); print(b); print(x)
         return x
 class s2s(linear):
     def __init__(self, mesh_ : mesh):
@@ -1928,7 +2008,6 @@ class s2s(linear):
         b = self.rhs.tocsr()
         x, exitCode = sparse.linalg.gmres(A, b.toarray(), tol = tol_, maxiter = max_iter_)
         x = x[:len(list(mesh_.clusts.keys()))]
-        print("source: {}".format(x))
         self.update_source(mesh_, value_, x)
         return
 
@@ -1998,10 +2077,8 @@ class solver:
     @property
     def current_time(self):
         return self.__current_time
-    @current_time.setter
-    def current_time(self, new_time : bool):
-        if new_time is True:
-            self.__current_time += 1
+    def forward_current_time(self):
+        self.__current_time += 1
     
     def forward_time(self, value_ : value, result_ : result):
         check_res_time = []
@@ -2020,93 +2097,109 @@ class solver:
         for it1 in ["u", "v", "w", "k", "e", "T"]:
             result_.set_res_time(it1, result_.res_loop()[it1][-1])
             check_res_time.append(result_.res_loop()[it1][-1] < self.tol)
-        self.current_time(True)
+        self.forward_current_time()
         return all(check_res_time)
     def energy_loop(self, mesh_ : mesh, user_ : user, value_ : value, result_ : result):
         # stop condition -> all equations return rmsr value < tol
         print("energy loop")
-        ctrl = 0; passes_total = 0; passes_turb = 0
-        check = [False, False]
+        ctrl = 0
+        exitCode = 0
+        check = [False, False, False]
         while ctrl < self.max_loop:
-            passes_total = 0; passes_turb = 0
-            check = [False, False]
-            while passes_total < self.max_loop:
-                if check[0] is True:
-                    break
-                print("calc s2s")
-                self.eq("s2s").iter_solve(mesh_, user_, value_, self.tol, self.max_iter)
-                print("calc energy")
-                x_T_ = self.eq("T").iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time)
-                rmsr_t_ = value_.update_value(mesh_, "T", x_T_)
-                self.eq("T").calc_post_bound(mesh_, user_, value_)
-                self.eq("T").calc_wall(mesh_, user_, value_)
-                result_.set_res_loop("T", rmsr_t_)
-                check[0] = rmsr_t_ < self.tol
-                passes_total += 1
-            while passes_turb < self.max_loop:
-                if check[1] is True:
-                    break
-                print("calc turb_k")
-                x_k_ = self.eq("k").iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time)
-                rmsr_k_ = value_.update_value(mesh_, "k", x_k_)
-                self.eq("k").calc_post_bound(mesh_, user_, value_)
-                self.eq("k").calc_wall(mesh_, user_, value_)
-                result_.set_res_loop("k", rmsr_k_)
-                print("calc turb_e")
-                x_e_ = self.eq("e").iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time)
-                rmsr_e_ = value_.update_value(mesh_, "e", x_e_)
-                self.eq("e").calc_post_bound(mesh_, user_, value_)
-                self.eq("e").calc_wall(mesh_, user_, value_)
-                result_.set_res_loop("e", rmsr_e_)
-                check[1] = all([i < self.__tol for i in [rmsr_k_, rmsr_e_]])
-                passes_turb += 1
+            check = [False, False, False]
+            print("calc s2s")
+            self.eq("s2s").iter_solve(mesh_, user_, value_, self.tol, self.max_iter)
+            print("calc energy")
+            x_T_ = self.eq("T").iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time)
+            rmsr_t_ = value_.update_value(mesh_, "T", x_T_)
+            self.eq("T").calc_post_bound(mesh_, user_, value_)
+            self.eq("T").calc_wall(mesh_, user_, value_)
+            result_.set_res_loop("T", rmsr_t_)
+            check[0] = rmsr_t_ < self.tol
+            print("calc turb_k")
+            x_k_ = self.eq("k").iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time)
+            rmsr_k_ = value_.update_value(mesh_, "k", x_k_)
+            self.eq("k").calc_post_bound(mesh_, user_, value_)
+            self.eq("k").calc_wall(mesh_, user_, value_)
+            result_.set_res_loop("k", rmsr_k_)
+            check[1] = rmsr_k_ < self.tol
+            print("calc turb_e")
+            x_e_ = self.eq("e").iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time)
+            rmsr_e_ = value_.update_value(mesh_, "e", x_e_)
+            self.eq("e").calc_post_bound(mesh_, user_, value_)
+            self.eq("e").calc_wall(mesh_, user_, value_)
+            result_.set_res_loop("e", rmsr_e_)
+            check[2] = rmsr_e_ < self.tol
             ctrl += 1
-            if all([passes_total + passes_turb < 4]) is True:
-                print("energy done")
+            if all(check) is True:
+                print("Energy done")
+                exitCode = 1
                 break
-        return ctrl
+        return exitCode
     def SIMPLE_loop(self, mesh_ : mesh, user_ : user, value_ : value, result_ : result):
         # stop condition -> all equations return rmsr value < tol
         print("SIMPLE loop")
-        ctrl = 0; passes_v = 0
+        ctrl = 0
+        exitCode = 0
         check = [False, False]
         while ctrl < self.max_iter:
-            passes_v = 0
+            res_pcor = 0
             check = [False, False]
-            while passes_v < self.max_iter:
-                if all(check) is True:
-                    break
-                print("calc v")
-                x_u_ = self.eq("u").iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time)
-                x_v_ = self.eq("v").iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time)
-                x_w_ = self.eq("w").iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time)
-                rmsr_u_ = value_.update_value(mesh_, "u", x_u_); rmsr_v_ = value_.update_value(mesh_, "v", x_v_); rmsr_w_ = value_.update_value(mesh_, "w", x_w_)
-                self.eq("u").calc_post_bound(mesh_, user_, value_); self.eq("v").calc_post_bound(mesh_, user_, value_); self.eq("w").calc_post_bound(mesh_, user_, value_)
-                self.eq("u").calc_wall(mesh_, user_, value_); self.eq("v").calc_wall(mesh_, user_, value_); self.eq("w").calc_wall(mesh_, user_, value_)
-                result_.set_res_loop("u", rmsr_u_); result_.set_res_loop("v", rmsr_v_); result_.set_res_loop("w", rmsr_w_)
-                print("calc pcor")
-                self.eq["Pcor"].itersolve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time, self.eq("u"), self.eq("v"), self.eq("w"))
-                res_pcor = np.sum(np.array([value_.cells("unit", "Pcor")[it1][1] for it1 in range(0, value_.cells("unit", "Pcor").shape[0])])) / len(list(mesh_.cells.keys()))
-                check[0] = all([it1 < self.tol for it1 in [rmsr_u_, rmsr_v_, rmsr_w_]])
-                check[1] = all([res_pcor < self.tol])
-                passes_v += 1
+            print("calc v")
+            x_u_ = self.eq("u").iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time)
+            x_v_ = self.eq("v").iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time)
+            x_w_ = self.eq("w").iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time)
+            rmsr_u_ = value_.update_value(mesh_, "u", x_u_); rmsr_v_ = value_.update_value(mesh_, "v", x_v_); rmsr_w_ = value_.update_value(mesh_, "w", x_w_)
+            self.eq("u").calc_post_bound(mesh_, user_, value_); self.eq("v").calc_post_bound(mesh_, user_, value_); self.eq("w").calc_post_bound(mesh_, user_, value_)
+            self.eq("u").calc_wall(mesh_, user_, value_); self.eq("v").calc_wall(mesh_, user_, value_); self.eq("w").calc_wall(mesh_, user_, value_)
+            result_.set_res_loop("u", rmsr_u_); result_.set_res_loop("v", rmsr_v_); result_.set_res_loop("w", rmsr_w_)
+            check[0] = all([it1 < self.tol for it1 in [rmsr_u_, rmsr_v_, rmsr_w_]])
+            print("calc pcor")
+            self.eq("Pcor").iter_solve(mesh_, user_, value_, self.under_relax, self.tol, self.max_iter, self.time_step, self.current_time, self.eq("u"), self.eq("v"), self.eq("w"))
+            res_pcor = np.sum(np.array([value_.cells("unit", "Pcor")[it1][1] for it1 in range(0, value_.cells("unit", "Pcor").shape[0])])) / len(list(mesh_.cells.keys()))
+            check[1] = res_pcor < self.tol
             ctrl += 1
-            if all([passes_v < 2]) is True:
+            if all(check) is True:
                 print("SIMPLE done")
+                exitCode = 1
                 break
-        return ctrl
+        return exitCode
     def time_loop(self, mesh_ : mesh, user_ : user, value_ : value, result_ : result):
         # stop condition per loop groups -> all loops return rmsr value < tol for a determined number of passes
         print("time loop")
-        ctrl_all = 0; passes_all = 0
-        passes_energy = 10; passes_momentum = 10
+        start_time = time.time()
+        ctrl_all = 0
+        check_time = 0
+        exitCode_time = "Not converged."
         while ctrl_all < self.max_loop:
-            if all([passes_energy + passes_momentum < 4]) is True:
-                break
-            passes_energy = self.energy_loop(mesh_, user_, value_, result_)
-            passes_momentum = self.SIMPLE_loop(mesh_, user_, value_, result_)
+            exit_energy = self.energy_loop(mesh_, user_, value_, result_)
+            exit_momentum = self.SIMPLE_loop(mesh_, user_, value_, result_)
             ctrl_all += 1
-        print("Time {} done. ({}/{} iterations)".format(self.current_time, ctrl_all, self.max_iter))
+            check_time = exit_energy + exit_momentum
+            if check_time == 2:
+                exitCode_time = "Converged"
+                break
+        min_P = np.min(value_.cells("unit", "P")[:,-1].ravel()); max_P = np.max(value_.cells("unit", "P")[:,-1].ravel())
+        min_Pcor = np.min(value_.cells("unit", "Pcor")[:,-1].ravel()); max_Pcor = np.max(value_.cells("unit", "Pcor")[:,-1].ravel())
+        min_u = np.min(value_.cells("unit", "u")[:,-1].ravel()); max_u = np.max(value_.cells("unit", "u")[:,-1].ravel()); res_u = result_.res_loop()["u"][-1]
+        min_v = np.min(value_.cells("unit", "v")[:,-1].ravel()); max_v = np.max(value_.cells("unit", "v")[:,-1].ravel()); res_v = result_.res_loop()["v"][-1]
+        min_w = np.min(value_.cells("unit", "w")[:,-1].ravel()); max_w = np.max(value_.cells("unit", "w")[:,-1].ravel()); res_w = result_.res_loop()["w"][-1]
+        min_k = np.min(value_.cells("unit", "k")[:,-1].ravel()); max_k = np.max(value_.cells("unit", "k")[:,-1].ravel()); res_k = result_.res_loop()["k"][-1]
+        min_e = np.min(value_.cells("unit", "e")[:,-1].ravel()); max_e = np.max(value_.cells("unit", "e")[:,-1].ravel()); res_e = result_.res_loop()["e"][-1]
+        min_T = np.min(value_.cells("unit", "T")[:,-1].ravel()); max_T = np.max(value_.cells("unit", "T")[:,-1].ravel()); res_T = result_.res_loop()["T"][-1]
+        if self.current_time == 0:
+            loop_time = self.time_step / 2
+        else:
+            loop_time = self.time_step * self.current_time
+        print("Time {} done ({}/{} iterations, {}s). {}".format(loop_time, ctrl_all, self.max_loop, round(time.time() - start_time, 3)), exitCode_time)
+        print("P; min: {}, max: {}".format(min_P, max_P))
+        print("Pcor; min: {}, max: {}".format(min_Pcor, max_Pcor))
+        print("u; min: {}, max: {}, loop res: {}".format(min_u, max_u, res_u))
+        print("v; min: {}, max: {}, loop res: {}".format(min_v, max_v, res_v))
+        print("w; min: {}, max: {}, loop res: {}".format(min_w, max_w, res_w))
+        print("k; min: {}, max: {}, loop res: {}".format(min_k, max_k, res_k))
+        print("e; min: {}, max: {}, loop res: {}".format(min_e, max_e, res_e))
+        print("T; min: {}, max: {}, loop res: {}".format(min_T, max_T, res_T))
         check_time = self.forward_time(value_, result_)
         return check_time
     def steady_loop(self, mesh_ : mesh, user_ : user, value_ : value, result_ : result):
@@ -2120,10 +2213,16 @@ class solver:
                 return
             ctrl_time += 1
         print("Steady state not achieved ({}s)".format(self.time_step * self.max_time_step))
+        print("u; {}".format(result_.res_time()["u"][-1]))
+        print("v; {}".format(result_.res_time()["v"][-1]))
+        print("w; {}".format(result_.res_time()["w"][-1]))
+        print("k; {}".format(result_.res_time()["k"][-1]))
+        print("e; {}".format(result_.res_time()["e"][-1]))
+        print("T; {}".format(result_.res_time()["T"][-1]))
         return
 
 user_test = user("test"); mesh_test = mesh("sc.msh"); value_test = value(mesh_test, user_test)
-result_test = result(mesh_test); solver_test = solver(mesh_test, user_test, value_test, 0.2, 0.005, 1000, 10, 0.05, 10)
+result_test = result(mesh_test); solver_test = solver(mesh_test, user_test, value_test, 0.2, 1, 5, 5, 1, 1)
 
 solver_test.steady_loop(mesh_test, user_test, value_test, result_test)
 
