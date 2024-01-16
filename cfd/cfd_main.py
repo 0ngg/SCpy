@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 """
 import compileall; import os
 compileall.compile_dir('C:\\Users\\SolVer\\Documents\\TA\\Program\\SCpy\\lib\\cfd')
