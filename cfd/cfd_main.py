@@ -3664,11 +3664,17 @@ def solve(info_: Info, geom_: Geom, pool_: Pool, user_: User, export_: Export, c
         text_file.close()
     return
 
-def case_manager(mesh_loc, result_loc, case_no: int, nhorizontal_: int, irr: float, lambda_: float, tol_: float, delta_t: float, time_step: int, count_step: int):
-    meshloc = f'{mesh_loc}\\mesh{case_no}.msh'
-    resultloc = f'{result_loc}\\irr{irr}'
+def case_manager(mesh_loc, case_no: int, nhorizontal_: int, irr: float, lambda_: float, tol_: float, delta_t: float, time_step: int, count_step: int):
+    meshloc = os.getcwd() + f'\\{mesh_loc}\\mesh{case_no}.msh'
+    if not os.path.exists(f'\\data'):
+        try:
+            original_umask = os.umask(0)
+            os.makedirs(f'', 0o777)
+        finally:
+            os.umask(original_umask)
+    resultloc = f'\\data'
     casename = f'case{case_no}_irr{irr}'
-
+    
     # glass transmissivity 0.86, reflectivity 0.08
     qabs_ = [irr]*time_step
     qglass_ = [irr * (1 - 0.86)]*time_step
@@ -3678,9 +3684,8 @@ def case_manager(mesh_loc, result_loc, case_no: int, nhorizontal_: int, irr: flo
     solve(info_, geom_, pool_, user_, export_, 5, geom_external, qabs_, qglass_, casename, resultloc, lambda_ = lambda_,
         delta_t_ = delta_t, maxiter_ = 20, tol_ = tol_, maxiterstep_ = 1, clock_result = count_step, save_ = True)
 
-mesh_loc = 'C:\\Users\\SolVer\\Downloads\\old\\fuck_git\\mesh'
-result_loc = 'C:\\Users\\Solver\\Downloads\\old\\fuck_git\\test'
-case_manager(mesh_loc, result_loc, 1, 7, 100, 0.9, 1e-4, 5, 3, 3)
+mesh_folder = 'mesh'
+case_manager(mesh_loc, 1, 7, 100, 0.9, 1e-4, 5, 3, 3)
 
 # import matplotlib.pyplot as plt
 
