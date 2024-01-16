@@ -437,9 +437,9 @@ def table_analysis(caseloc, mesh_id, irr_, csvname):
     
     all_entry_ = []
     for it1 in mesh_id:
-        analysisdoc = gzip.open(f'{caseloc}\\irr{irr_}\\case{it1}_irr{irr_}\\case{it1}_irr{irr_}_analysis.pklz', 'rb'); analysis_ = pickle.load(analysisdoc); analysisdoc.close()
-        # reportdoc = open(f'{caseloc}\\irr{irr_}\\case{it1}_irr{irr_}\\case{it1}_irr{irr_}_report', 'rb'); report_ = pickle.load(reportdoc); reportdoc.close()
-        report_ = pd.read_csv(f'{caseloc}\\irr{irr_}\\case{it1}_irr{irr_}\\case{it1}_irr{irr_}_report.csv')
+        analysisdoc = gzip.open(f'{caseloc}\\case{it1}_irr{irr_}\\case{it1}_irr{irr_}_analysis.pklz', 'rb'); analysis_ = pickle.load(analysisdoc); analysisdoc.close()
+        # reportdoc = open(f'{caseloc}\\case{it1}_irr{irr_}\\case{it1}_irr{irr_}_report', 'rb'); report_ = pickle.load(reportdoc); reportdoc.close()
+        report_ = pd.read_csv(f'{caseloc}\\case{it1}_irr{irr_}\\case{it1}_irr{irr_}_report.csv')
         
         id_entry_ = [np.array([it1]*len(analysis_.times)), np.array([irr_]*len(analysis_.times)), np.array(analysis_.times)]
         for it3, it4 in columns_analysis.items():
@@ -466,7 +466,7 @@ def table_analysis(caseloc, mesh_id, irr_, csvname):
     return
 
 # exec
-caseloc = '..\\mesh'
+caseloc = os.getcwd() + '\\data'
 mesh_id = list(range(1,10))
 channel_H = [0.27, 0.27, 0.88, 0.88, 1, 0.15, 0.575, 0.575, 0.575]
 channel_W = [1.22, 2.28, 1.22, 2.28, 1.75, 1.75, 2.5, 1, 1.75]
@@ -477,20 +477,20 @@ irr_ = 500
 
 for get1, get2 in enumerate(mesh_id):
     print(f'mesh {get2}, irr {irr_}')
-    infodoc = gzip.open(f'{caseloc}\\irr{irr_}\\case{get2}_irr{irr_}\\case{get2}_irr{irr_}_info.pklz', 'rb'); info_ = pickle.load(infodoc); infodoc.close()
-    geomdoc = gzip.open(f'{caseloc}\\irr{irr_}\\case{get2}_irr{irr_}\\case{get2}_irr{irr_}_geom.pklz', 'rb'); geom_ = pickle.load(geomdoc); geomdoc.close()
-    pooldoc = gzip.open(f'{caseloc}\\irr{irr_}\\case{get2}_irr{irr_}\\case{get2}_irr{irr_}_pool.pklz', 'rb'); pool_ = pickle.load(pooldoc); pooldoc.close()
+    infodoc = gzip.open(f'{caseloc}\\case{get2}_irr{irr_}\\case{get2}_irr{irr_}_info.pklz', 'rb'); info_ = pickle.load(infodoc); infodoc.close()
+    geomdoc = gzip.open(f'{caseloc}\\case{get2}_irr{irr_}\\case{get2}_irr{irr_}_geom.pklz', 'rb'); geom_ = pickle.load(geomdoc); geomdoc.close()
+    pooldoc = gzip.open(f'{caseloc}\\case{get2}_irr{irr_}\\case{get2}_irr{irr_}_pool.pklz', 'rb'); pool_ = pickle.load(pooldoc); pooldoc.close()
     
     # poolTnew_ = analysis.time_least_square_gradient(info_, geom_, pool_.T)
     # poolvnew_ = analysis.time_least_square_gradient(info_, geom_, pool_.v)
     # poolpnew_ = analysis.time_least_square_gradient(info_, geom_, pool_.P)
 
-    poolTdoc = gzip.open(f'{caseloc}\\irr{irr_}\\case{get2}_irr{irr_}\\case{get2}_irr{irr_}_poolT.pklz', 'rb'); poolTnew_ = pickle.load(poolTdoc); poolTdoc.close()
-    poolvdoc = gzip.open(f'{caseloc}\\irr{irr_}\\case{get2}_irr{irr_}\\case{get2}_irr{irr_}_poolv.pklz', 'rb'); poolvnew_ = pickle.load(poolvdoc); poolvdoc.close()
-    poolpdoc = gzip.open(f'{caseloc}\\irr{irr_}\\case{get2}_irr{irr_}\\case{get2}_irr{irr_}_poolP.pklz', 'rb'); poolpnew_ = pickle.load(poolpdoc); poolpdoc.close()
+    poolTdoc = gzip.open(f'{caseloc}\\case{get2}_irr{irr_}\\case{get2}_irr{irr_}_poolT.pklz', 'rb'); poolTnew_ = pickle.load(poolTdoc); poolTdoc.close()
+    poolvdoc = gzip.open(f'{caseloc}\\case{get2}_irr{irr_}\\case{get2}_irr{irr_}_poolv.pklz', 'rb'); poolvnew_ = pickle.load(poolvdoc); poolvdoc.close()
+    poolpdoc = gzip.open(f'{caseloc}\\case{get2}_irr{irr_}\\case{get2}_irr{irr_}_poolP.pklz', 'rb'); poolpnew_ = pickle.load(poolpdoc); poolpdoc.close()
 
     get_ = analysis(info_, geom_, poolTnew_, poolvnew_, poolpnew_, nlayer_, delta_t, channel_L, channel_W[get1], channel_H[get1], plot = False)
-    analysisdoc = gzip.open(f'{caseloc}\\irr{irr_}\\case{get2}_irr{irr_}\\case{get2}_irr{irr_}_analysis.pklz', 'wb'); pickle.dump(get_, analysisdoc); analysisdoc.close()
+    analysisdoc = gzip.open(f'{caseloc}\\case{get2}_irr{irr_}\\case{get2}_irr{irr_}_analysis.pklz', 'wb'); pickle.dump(get_, analysisdoc); analysisdoc.close()
 
 table_analysis(caseloc, mesh_id, irr_, '12-11-23')
 
