@@ -466,7 +466,7 @@ def table_analysis(caseloc, mesh_id, irr_, csvname):
     return
 
 # exec
-caseloc = 'C:\\Users\\LENOVO\\Documents\\TA\\Data\\12-11-23'
+caseloc = '..\\mesh'
 mesh_id = list(range(1,10))
 channel_H = [0.27, 0.27, 0.88, 0.88, 1, 0.15, 0.575, 0.575, 0.575]
 channel_W = [1.22, 2.28, 1.22, 2.28, 1.75, 1.75, 2.5, 1, 1.75]
