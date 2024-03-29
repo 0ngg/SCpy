@@ -1,6 +1,5 @@
 """
 import compileall; import os
-compileall.compile_dir('C:\\Users\\SolVer\\Documents\\TA\\Program\\SCpy\\lib\\cfd')
 """
 
 import numpy as np
@@ -7478,8 +7477,6 @@ case_manager(mesh_loc, 1, 7, 100, 0.9, 1e-4, 5, 3, 3)
 
 # import matplotlib.pyplot as plt
 
-# meshloc = f'C:\\Users\\SolVer\\Downloads\\old\\fuck_git\\mesh\\mesh1.msh'
-# resultloc = f'C:\\Users\\Solver\\Downloads\\old\\fuck_git\\results\\irr100'
 # info_, geom_, pool_, user_, export_ = initialize(meshloc, 2.5, 11, 0.5, 7, T_ = 300, v_ = 0.001, w_ = 0.0, mdot_ = 0, P_ = 0, Pinlet_ = 0, Poutlet_ = 0) # I = 200 w/m2, abs 163.4
 
 # node_list = []
